@@ -1,0 +1,152 @@
+# evcc configuration - managed in the Home Assistant git repo.
+# Loaded by the evcc add-on via option:  config_file: /homeassistant/evcc.yaml
+# Docs: https://docs.evcc.io/en/smarthome/home-assistant
+#
+# Data sources are Home Assistant entities, reached over the add-on's
+# pre-authorised supervisor proxy (no token required).
+#
+# Sponsor token: configured via the add-on's web UI (Configuration ->
+# Sponsorship), intentionally NOT stored here - it's a bearer secret and
+# this repo has no secrets-include mechanism for evcc (unlike HA's
+# !secret). It lives in /data/evcc-yaml.db and survives add-on restarts.
+
+log: info
+interval: 30s
+
+# ------------------------------------------------------------------
+# Meters
+# ------------------------------------------------------------------
+meters:
+  - name: grid
+    type: homeassistant
+    uri: http://supervisor/core
+    insecure: false
+    power: sensor.p1_net_power                  # signed W, + = import   (template, see templates.yaml)
+    energy: sensor.p1_grid_import_energy        # kWh cumulative import  (template)
+    returnenergy: sensor.p1_grid_export_energy  # kWh cumulative export  (template)
+    # Signed per-phase currents, + = import (templates in templates.yaml).
+    # The P1 meter's own currents are unsigned whole amps, so export would
+    # read as import and the circuit below would throttle during surplus.
+    currents:
+      - sensor.grid_current_l1_signed
+      - sensor.grid_current_l2_signed
+      - sensor.grid_current_l3_signed
+
+  - name: pv
+    type: homeassistant
+    uri: http://supervisor/core
+    insecure: false
+    power: sensor.sma_ac_power                  # W  - SMA inverter AC power
+    energy: sensor.sma_energy_lifetime          # kWh - lifetime production
+
+# ------------------------------------------------------------------
+# Vehicle - Tesla Model 3 LR RWD "Calimero" (official Tesla Fleet
+# integration). Delivered 19 Sep 2026, replacing the Model X.
+# ------------------------------------------------------------------
+vehicles:
+  - name: tesla
+    type: homeassistant
+    title: Calimero
+    uri: http://supervisor/core
+    insecure: false
+    capacity: 79           # kWh usable - Model 3 LR
+    phases: 3
+    sensors:
+      soc: sensor.calimero_battery_level
+      range: sensor.calimero_battery_range
+      status: sensor.tesla_evcc_charge_status   # template: reports "disconnected" when the car is not home
+      limitSoc: number.calimero_charge_limit
+    statusB: "no_power"                          # plugged in but no power flowing -> treat as connected
+    services:
+      start_charging: switch.calimero_charge     # a switch is used for BOTH start and stop
+      wakeup: button.calimero_wake
+      setMaxCurrent: number.calimero_charge_current
+
+# ------------------------------------------------------------------
+# Charger
+# ------------------------------------------------------------------
+chargers:
+  # TEMPORARY: stand-in for the Peblar wallbox that's on order. The
+  # `demo-charger` template just returns fixed values (nothing physical
+  # is connected yet). Once the Peblar is installed, swap `template:
+  # demo-charger` below for the real Peblar template/host - keep the
+  # device name `peblar` so the loadpoint doesn't need to change.
+  - name: peblar
+    type: template
+    template: demo-charger
+    status: A              # A = no car connected
+    power: 0
+    enabled: false
+
+  # --- REAL PEBLAR, for installation day --------------------------------
+  # Swap: delete the demo-charger entry above, uncomment this one. The
+  # device name stays `peblar`, so the loadpoint needs no change.
+  #
+  # Before uncommenting:
+  #  1. DHCP reservation for the Peblar (MAC from its web UI or the
+  #     router's lease list after first boot), then fill in host below.
+  #  2. Peblar web UI: firmware 1.6 or later, Modbus TCP server ENABLED,
+  #     Peblar's own smart charging OFF (evcc is the controller; don't
+  #     drive select.peblar_smart_charging from HA either).
+  #  3. Peblar web UI: static current cap below the 25A main fuse as the
+  #     dumb backstop under evcc's 23A circuit (12 Sep decision).
+  #  4. A valid evcc sponsor token: the Peblar template requires one.
+  #
+  # Then run T7.1 first, within the return period.
+  #
+  # - name: peblar
+  #   type: template
+  #   template: peblar
+  #   modbus: tcpip
+  #   host: 192.168.0.XXX      # the DHCP-reserved address
+  #   port: 502
+
+# ------------------------------------------------------------------
+# Circuits - load balancing backstop (layer 2)
+# Main connection is 3x25A. evcc dials back at 23A so it acts before the
+# Peblar's own static cap (layer 1) has to. Measured by the grid meter's
+# signed currents above; the lowest active limit wins.
+# ------------------------------------------------------------------
+circuits:
+  - name: main
+    title: Main connection 3x25A
+    maxCurrent: 23
+    meter: grid
+
+# ------------------------------------------------------------------
+# Loadpoint
+# ------------------------------------------------------------------
+loadpoints:
+  - title: Tesla
+    charger: peblar
+    vehicle: tesla
+    circuit: main
+    mode: smart               # post-disconnect default; change live in the UI
+
+# ------------------------------------------------------------------
+# Site
+# ------------------------------------------------------------------
+site:
+  title: Home
+  meters:
+    grid: grid
+    pv:
+      - pv
+  residualPower: 100       # W - keep a small import margin for surplus control
+
+# ------------------------------------------------------------------
+# Tariffs - Frank Energie dynamic contract (NL day-ahead)
+#   epexprijzen-nl / frank-energie = all-in price: spot + energy tax + VAT + Frank markup
+# ------------------------------------------------------------------
+tariffs:
+  currency: EUR
+  grid:
+    type: template
+    template: epexprijzen-nl
+    provider: frank-energie
+    price-interval: hourly
+  feedin:
+    type: template
+    template: epexprijzen-nl
+    provider: frank-energie
+    price-interval: hourly
