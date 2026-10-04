@@ -31,6 +31,7 @@ Requires in configuration.yaml:
           all_day_departure_hour: 8       # assumed departure for date-only events
           near_trip_hours: 6              # inside this window, always re-route (live traffic)
           route_cache_hours: 6            # outside it, reuse a cached distance this long
+          route_predict_max_hours: 72     # route on predicted traffic at departure up to this far ahead
           idle_required_soc: 0            # written when there is no upcoming trip
           floor_soc: 0                    # SOC floor kept while plugged in; 0 = off
           floor_ready_hour: 7             # the floor is due by this local hour
@@ -77,6 +78,13 @@ WHAT CHANGED AND WHY (the non-obvious bits):
   cached for 30 days keyed on the location string; routes are cached for
   route_cache_hours and always recalculated inside near_trip_hours, when
   live traffic actually matters.
+
+* Drive time uses PREDICTED traffic at the departure time (4 Oct). Waze
+  can route for a future start, so a 17:30 trip booked at 15:00 is timed
+  on rush-hour traffic rather than mid-afternoon traffic. For an arrival
+  the departure is worked out from the drive itself. Up to
+  route_predict_max_hours ahead; further out, current traffic until the
+  trip comes within range. See _route_cached().
 
 * A GEO=lat,lon line in the event DESCRIPTION is HONOURED. The dashboard's
   destination picker pins the branch the user chose onto the event; this
@@ -163,6 +171,11 @@ TRIP_CLUSTER_HOURS = float(pyscript.app_config.get("trip_cluster_hours", 12))
 ALL_DAY_DEPARTURE_HOUR = int(pyscript.app_config.get("all_day_departure_hour", 8))
 NEAR_TRIP_HOURS = float(pyscript.app_config.get("near_trip_hours", 6))
 ROUTE_CACHE_HOURS = float(pyscript.app_config.get("route_cache_hours", 6))
+# Ask Waze for predicted traffic at the trip's departure time, up to this
+# far ahead. Beyond it the prediction is little more than a weekday
+# average, so the route is calculated on current traffic instead and the
+# prediction kicks in once the trip comes within range.
+ROUTE_PREDICT_MAX_HOURS = float(pyscript.app_config.get("route_predict_max_hours", 72))
 IDLE_REQUIRED_SOC = float(pyscript.app_config.get("idle_required_soc", 0))
 FLOOR_SOC = float(pyscript.app_config.get("floor_soc", 0))
 FLOOR_READY_HOUR = int(pyscript.app_config.get("floor_ready_hour", 7))
@@ -288,6 +301,7 @@ def check_next_trip_energy():
 
     total_km = 0.0
     first_leg_min = None
+    first_traffic_at = None
     succeeded_keys = []
     pinned_count = 0
 
@@ -330,7 +344,8 @@ def check_next_trip_energy():
             continue
 
         route, fresh = _route_cached(
-            home_coords, dest, start, one_way, route_cache, now_ts
+            home_coords, dest, start, _starts_at_departure(description, uid),
+            one_way, route_cache, now_ts,
         )
         if fresh:
             caches_dirty = True
@@ -350,6 +365,7 @@ def check_next_trip_energy():
         total_km += route["km"]
         if is_first:
             first_leg_min = route["out_min"]
+            first_traffic_at = route.get("traffic_at")
         succeeded_keys.append(alert_key)
 
     _save_caches(geocode_cache, route_cache, caches_dirty)
@@ -387,18 +403,8 @@ def check_next_trip_energy():
     # a deadline of the previous evening, and the plan publisher's
     # 15-minute floor then told evcc to charge flat out immediately.
     #
-    # tesla_calendar.schedule_manual_trip() writes TIME_IS=DEPARTURE or
-    # TIME_IS=ARRIVAL, from the form's "Arrive by" toggle. An explicit
-    # marker always wins. Without one, a manual- UID means departure (trips
-    # booked before the marker was written) and anything else is an inbound
-    # invite, i.e. arrival.
     first_description = cluster[0][1].get("description") or ""
-    if "TIME_IS=ARRIVAL" in first_description:
-        first_is_departure = False
-    elif "TIME_IS=DEPARTURE" in first_description:
-        first_is_departure = True
-    else:
-        first_is_departure = first_uid.startswith("manual-")
+    first_is_departure = _starts_at_departure(first_description, first_uid)
     drive_offset_min = 0 if first_is_departure else (first_leg_min or 0)
     start_meaning = "departure" if first_is_departure else "arrival"
 
@@ -436,7 +442,8 @@ def check_next_trip_energy():
         f"{total_km:.1f} km, {energy_needed_kwh:.1f} kWh at {wh_per_km:.0f} Wh/km, "
         f"target SOC {target_soc:.1f}% by {deadline.strftime('%Y-%m-%d %H:%M')} "
         f"(event starts {first_start.strftime('%H:%M')} as {start_meaning}, "
-        f"{drive_offset_min:.0f} min drive + {PREP_BUFFER_MIN:.0f} min buffer)"
+        f"{drive_offset_min:.0f} min drive + {PREP_BUFFER_MIN:.0f} min buffer, "
+        f"traffic {('predicted for ' + first_traffic_at) if first_traffic_at else 'as of now'})"
     )
     if plan_kind != "trip":
         log.info(
@@ -760,20 +767,54 @@ def _pinned_coords(description, summary):
 # Routing, with cache
 # --------------------------------------------------------------------
 
-def _route_cached(home_coords, dest_coords, event_start, one_way, cache, now_ts):
-    """Returns ({'km': total, 'out_min': minutes} or None, recalculated).
+def _starts_at_departure(description, uid):
+    """True when the event's start time is a DEPARTURE, False when it is an
+    ARRIVAL (the drive has to come off it).
 
-    Recalculates when the event is inside near_trip_hours (live traffic
-    matters then) or the cached value is older than route_cache_hours.
-    Otherwise reuses the cache — a route to a fixed address doesn't
-    change materially from one 5-minute poll to the next.
+    tesla_calendar.schedule_manual_trip() writes TIME_IS=DEPARTURE or
+    TIME_IS=ARRIVAL from the form's "Arrive by" toggle, and an explicit
+    marker always wins. Without one, a manual- UID means departure (trips
+    booked before the marker was written) and anything else is an inbound
+    invite, which is an arrival.
+    """
+    description = description or ""
+    if "TIME_IS=ARRIVAL" in description:
+        return False
+    if "TIME_IS=DEPARTURE" in description:
+        return True
+    return str(uid or "").startswith("manual-")
+
+
+def _route_cached(home_coords, dest_coords, event_start, is_departure,
+                  one_way, cache, now_ts):
+    """Returns ({'km', 'out_min', 'traffic_at'} or None, recalculated).
+
+    PREDICTED TRAFFIC. The outbound leg is routed for the trip's expected
+    DEPARTURE time, not for now: Waze predicts traffic for a future start
+    (pywaze's time_delta, minutes from now). A 17:30 rush-hour trip booked
+    at 15:00 used to be timed on mid-afternoon traffic. The departure time
+    is the event start for a departure, or event start minus the drive for
+    an arrival; with no earlier estimate for the drive, the executor works
+    it out in two calls. Beyond route_predict_max_hours, or for a departure
+    already in the past, current traffic is used.
+
+    The return leg is always routed on current traffic: its duration is
+    never used, only its distance, which traffic barely changes.
+
+    CACHING. Recalculates when the event is inside near_trip_hours (the
+    prediction gets better as the trip approaches) or the cached value is
+    older than route_cache_hours. Otherwise reuses the cache. The key
+    includes the event's start hour and its time meaning, so a rush-hour
+    trip and a night-time trip to the same place don't share a duration.
     """
     key = (
         f"{home_coords[0]:.5f},{home_coords[1]:.5f}"
         f"->{dest_coords[0]:.5f},{dest_coords[1]:.5f}"
         f"|{'one' if one_way else 'round'}"
+        f"|{event_start.strftime('%Y%m%dT%H')}|{'dep' if is_departure else 'arr'}"
     )
-    hours_away = (event_start - dt_util.now()).total_seconds() / 3600
+    now = dt_util.now()
+    hours_away = (event_start - now).total_seconds() / 3600
     entry = cache.get(key)
 
     if (
@@ -782,46 +823,98 @@ def _route_cached(home_coords, dest_coords, event_start, one_way, cache, now_ts)
         and hours_away > NEAR_TRIP_HOURS
         and now_ts - entry.get("ts", 0) < ROUTE_CACHE_HOURS * 3600
     ):
-        return {"km": entry["km"], "out_min": entry["out_min"]}, False
+        return {
+            "km": entry["km"], "out_min": entry["out_min"],
+            "traffic_at": entry.get("traffic_at"),
+        }, False
+
+    # Minutes from now until the expected departure. For an arrival, a
+    # previous estimate of the drive gives it directly; without one the
+    # executor routes once to the arrival time to learn the drive, then
+    # again for the departure (arrival_delta set, out_delta ignored).
+    max_min = ROUTE_PREDICT_MAX_HOURS * 60
+    start_min = (event_start - now).total_seconds() / 60
+    arrival_delta = None
+    if is_departure:
+        out_delta = start_min
+    elif isinstance(entry, dict) and entry.get("out_min") is not None:
+        out_delta = start_min - float(entry["out_min"])
+    else:
+        out_delta = None
+        arrival_delta = start_min
+
+    probe = arrival_delta if out_delta is None else out_delta
+    if probe <= 0 or probe > max_min:
+        # Departure in the past, or too far ahead to predict: current traffic.
+        out_delta, arrival_delta = 0, None
 
     start = f"{home_coords[0]},{home_coords[1]}"
     end = f"{dest_coords[0]},{dest_coords[1]}"
-    out_km, out_min, back_km, back_min = _waze_legs(start, end, not one_way)
+    out_km, out_min, back_km, back_min, used_delta = _waze_legs(
+        start, end, not one_way,
+        int(round(out_delta)) if out_delta is not None else None,
+        int(round(arrival_delta)) if arrival_delta is not None else None,
+    )
 
     if out_km is None:
         return None, False
     if not one_way and back_km is None:
         return None, False
 
+    traffic_at = None
+    if used_delta:
+        traffic_at = (now + datetime.timedelta(minutes=used_delta)).strftime(
+            "%a %H:%M"
+        )
+
     total = out_km if one_way else out_km + back_km
-    cache[key] = {"km": total, "out_min": out_min, "ts": now_ts}
-    return {"km": total, "out_min": out_min}, True
+    cache[key] = {
+        "km": total, "out_min": out_min, "ts": now_ts, "traffic_at": traffic_at,
+    }
+    return {"km": total, "out_min": out_min, "traffic_at": traffic_at}, True
 
 
 @pyscript_executor
-def _waze_legs(start, end, include_return):
+def _waze_legs(start, end, include_return, out_delta, arrival_delta):
     """Both legs over ONE client and ONE event loop.
 
-    Previously each leg was its own asyncio.run() -> new event loop -> new
-    httpx.AsyncClient -> new TLS handshake.
+    out_delta:     minutes from now to route the outbound leg for (0 = now).
+    arrival_delta: set instead of out_delta when the departure time is not
+                   known yet: the outbound leg is routed once for the
+                   arrival time to learn the drive, then again for
+                   arrival minus that drive. Self-contained on purpose: no
+                   calls to other pyscript functions from an executor.
 
-    Returns (out_km, out_min, back_km, back_min); Nones on failure.
+    Returns (out_km, out_min, back_km, back_min, used_delta); Nones on
+    failure. used_delta is the minutes-from-now the outbound leg was
+    actually routed for.
     """
     import asyncio
 
     async def _calc():
         async with route_calculator.WazeRouteCalculator() as client:
-            out = (await client.calc_routes(start, end))[0]
+            if arrival_delta is not None:
+                first = (await client.calc_routes(
+                    start, end, time_delta=int(arrival_delta)
+                ))[0]
+                delta = max(0, int(round(arrival_delta - first.duration)))
+            else:
+                first = None
+                delta = max(0, int(out_delta or 0))
+            if first is not None and abs(delta - int(arrival_delta)) < 15:
+                out = first  # the drive is short; the first answer will do
+            else:
+                out = (await client.calc_routes(start, end, time_delta=delta))[0]
             if not include_return:
-                return out.distance, out.duration, None, None
+                return out.distance, out.duration, None, None, delta
             back = (await client.calc_routes(end, start))[0]
-            return out.distance, out.duration, back.distance, back.duration
+            return out.distance, out.duration, back.distance, back.duration, delta
 
     try:
         return asyncio.run(_calc())
     except Exception as e:
         _logger.warning(f"Waze route calc failed: {e}")
-        return None, None, None, None
+        return None, None, None, None, None
 
 
 def _save_caches(geocode_cache, route_cache, dirty):

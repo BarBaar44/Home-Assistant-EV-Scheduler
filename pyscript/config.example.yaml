@@ -38,6 +38,7 @@ apps:
     all_day_departure_hour: 8
     near_trip_hours: 6
     route_cache_hours: 6
+    route_predict_max_hours: 72           # use Waze's predicted traffic at departure up to this far ahead
     idle_required_soc: 0
     floor_soc: 0                          # e.g. 50 keeps the car at least 50% while plugged in; 0 = off
     floor_ready_hour: 7
