@@ -245,6 +245,10 @@ MANUAL_TRIP_OPTIONS_SENSOR = "sensor.manual_trip_options"
 # and the two copies could disagree.
 MANUAL_TRIP_LOCATION = "input_text.manual_trip_location"
 MANUAL_TRIP_ONE_WAY = "input_boolean.manual_trip_one_way"
+# Off = the form's time is when you LEAVE; on = when you must ARRIVE.
+# Optional: if the helper doesn't exist the form simply has no toggle and
+# every manual trip is a departure, which was the only behaviour before.
+MANUAL_TRIP_ARRIVE_BY = "input_boolean.manual_trip_arrive_by"
 NO_TRIPS_OPTION = "(none)"
 
 # Destination picker. The location field is a SEARCH BOX now, not the
@@ -777,7 +781,8 @@ def _parse_local(value):
 
 @service
 def schedule_manual_trip(trip_datetime, location, organizer_name,
-                         one_way=False, geo=None, display_name=None):
+                         one_way=False, geo=None, display_name=None,
+                         arrive_by=False):
     """Add a manually-scheduled trip directly to tesla.ics, and email the
     organizer a proper iMIP invite so they can add it to their own
     calendar.
@@ -809,6 +814,12 @@ def schedule_manual_trip(trip_datetime, location, organizer_name,
         LOCATION keeps the full string regardless, since that is what a
         calendar client geolocates from. Defaults to `location` when not
         given, so a caller without a picker behind it behaves as before.
+    arrive_by: what `trip_datetime` means. False (default): the DEPARTURE
+        time, so tesla_trip_energy.py only takes the prep buffer off it.
+        True: the time you must ARRIVE, so the drive time comes off as
+        well, exactly like an inbound calendar invite. Written to the event
+        as TIME_IS=DEPARTURE or TIME_IS=ARRIVAL, so the meaning travels
+        with the event and survives a reschedule.
     """
     parsed = _parse_local(trip_datetime)
     if parsed is None:
@@ -979,7 +990,14 @@ def schedule_manual_trip(trip_datetime, location, organizer_name,
     attendee.params["RSVP"] = vText("TRUE")
     event.add("attendee", attendee, encode=0)
 
-    description_lines = [f"TRIP_TYPE={'ONE_WAY' if one_way else 'ROUND_TRIP'}"]
+    arrive_by = _as_bool(arrive_by)
+    description_lines = [
+        f"TRIP_TYPE={'ONE_WAY' if one_way else 'ROUND_TRIP'}",
+        # Always written, both values. tesla_trip_energy.py used to rely on
+        # the manual- UID prefix alone to know a manual trip's time was a
+        # departure; the marker was documented but never actually written.
+        f"TIME_IS={'ARRIVAL' if arrive_by else 'DEPARTURE'}",
+    ]
     if pinned:
         # Pin the chosen coordinates to the event itself rather than
         # relying on the geocode cache. The cache is keyed on the location
@@ -1014,13 +1032,16 @@ def schedule_manual_trip(trip_datetime, location, organizer_name,
     # An info banner is true at the moment it's shown and resolves to
     # green or amber in place.
     trip_text = (
-        f"Trip to {display_name} scheduled for "
+        f"Trip to {display_name}, "
+        f"{'arriving' if arrive_by else 'leaving'} "
         f"{parsed.strftime('%a %d %b, %H:%M')}"
         f"{' (one-way)' if one_way else ''}"
     )
     _set_form_status("info", f"{trip_text}. Sending the invite…", "schedule")
     input_text.set_value(entity_id=MANUAL_TRIP_LOCATION, value="")
     input_boolean.turn_off(entity_id=MANUAL_TRIP_ONE_WAY)
+    if state.getattr(MANUAL_TRIP_ARRIVE_BY) is not None:
+        input_boolean.turn_off(entity_id=MANUAL_TRIP_ARRIVE_BY)
     _reset_destination_results()
     _reset_trip_datetime()
 
@@ -1038,9 +1059,18 @@ def schedule_manual_trip(trip_datetime, location, organizer_name,
         _email_failed(organizer_email, "confirmation")
 
     log.info(
-        f"Manually scheduled trip {event_uid} to '{location}' at {parsed} "
+        f"Manually scheduled trip {event_uid} to '{location}', "
+        f"{'arriving' if arrive_by else 'departing'} {parsed} "
         f"({'one-way' if one_way else 'round trip'}), organizer {organizer_email}"
     )
+
+
+def _as_bool(value):
+    """Service data from a template arrives as a string ("True", "on",
+    "false"), so bool() alone would read "false" as True."""
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in ("true", "on", "yes", "1")
 
 
 def _invite_from(member_email):

@@ -51,17 +51,16 @@ WHAT CHANGED AND WHY (the non-obvious bits):
   floor_soc: 0 keeps the old behaviour exactly (idle values, 2099 deadline).
 
 * Deadline is DEPARTURE, not event start — and what "event start" MEANS
-  depends on where the event came from. An inbound calendar invite's
-  DTSTART is when you have to BE somewhere, so the outbound leg comes off
-  it: deadline = event_start - travel_time - prep_buffer_min. A manually
-  scheduled trip's DTSTART is the DEPARTURE time the user typed into the
-  dashboard form, so only prep_buffer_min comes off it. Subtracting the
-  drive from both put a ten-hour trip departing 07:00 tomorrow at a
-  deadline of the previous evening, which the evcc plan publisher's
-  15-minute floor then turned into "charge flat out right now". Manual
-  trips are identified by TIME_IS=DEPARTURE in DESCRIPTION, with a
-  manual- UID prefix as fallback for trips booked before that marker
-  existed.
+  is carried by the event. An inbound calendar invite's DTSTART is when
+  you have to BE somewhere, so the outbound leg comes off it:
+  deadline = event_start - travel_time - prep_buffer_min. A dashboard trip
+  is either: the form has an "Arrive by" toggle, and the trip is tagged
+  TIME_IS=ARRIVAL (treated like an invite) or TIME_IS=DEPARTURE (only
+  prep_buffer_min comes off). An explicit marker always wins; without one
+  a manual- UID means departure, for trips booked before the marker was
+  written. Subtracting the drive from a departure put a ten-hour trip
+  departing 07:00 at a deadline of the previous evening, which the evcc
+  plan publisher's 15-minute floor turned into "charge flat out now".
 
 * Trips are budgeted in CLUSTERS. Only the single nearest located event
   used to be considered. Two trips three hours apart meant the car was
@@ -388,17 +387,20 @@ def check_next_trip_energy():
     # a deadline of the previous evening, and the plan publisher's
     # 15-minute floor then told evcc to charge flat out immediately.
     #
-    # TIME_IS=DEPARTURE is written by tesla_calendar.schedule_manual_trip().
-    # The manual- UID prefix is the fallback: it covers trips booked
-    # before the marker existed, and it covers the case where Remote
-    # Calendar does not hand back a DESCRIPTION at all.
+    # tesla_calendar.schedule_manual_trip() writes TIME_IS=DEPARTURE or
+    # TIME_IS=ARRIVAL, from the form's "Arrive by" toggle. An explicit
+    # marker always wins. Without one, a manual- UID means departure (trips
+    # booked before the marker was written) and anything else is an inbound
+    # invite, i.e. arrival.
     first_description = cluster[0][1].get("description") or ""
-    first_is_manual = (
-        "TIME_IS=DEPARTURE" in first_description
-        or first_uid.startswith("manual-")
-    )
-    drive_offset_min = 0 if first_is_manual else (first_leg_min or 0)
-    start_meaning = "departure" if first_is_manual else "arrival"
+    if "TIME_IS=ARRIVAL" in first_description:
+        first_is_departure = False
+    elif "TIME_IS=DEPARTURE" in first_description:
+        first_is_departure = True
+    else:
+        first_is_departure = first_uid.startswith("manual-")
+    drive_offset_min = 0 if first_is_departure else (first_leg_min or 0)
+    start_meaning = "departure" if first_is_departure else "arrival"
 
     deadline = first_start - datetime.timedelta(
         minutes=drive_offset_min + PREP_BUFFER_MIN

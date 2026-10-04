@@ -37,6 +37,8 @@ script:
           display_name: "{{ entry.short }}"
           geo: "{{ entry.geo }}"
           one_way: "{{ is_state('input_boolean.manual_trip_one_way', 'on') }}"
+          # off: the time is when you leave; on: when you must arrive
+          arrive_by: "{{ is_state('input_boolean.manual_trip_arrive_by', 'on') }}"
           organizer_name: "{{ context.user_id }}"
 
   cancel_selected_manual_trip:

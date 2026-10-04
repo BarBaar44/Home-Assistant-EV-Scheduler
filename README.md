@@ -28,7 +28,7 @@ Your calendar already knows. This project reads it, works out the energy each tr
 * **Auto accept.** The car accepts an invite once its location can be found on the map, so it shows as attending in the organizer's calendar. No location? It replies asking for one.
 * **Dashboard trip form.** Book, move or cancel a trip from Home Assistant. Destination search shows a pick list (useful for "Lidl Amsterdam", which has a dozen branches) and pins the chosen coordinates to the trip. The person who booked it gets a real calendar invite.
 * **Real energy estimate.** Waze routing for distance and drive time, a weather adjusted Wh/km figure (temperature, wind, rain), round trip or one way, and a safety buffer. Trips close together are budgeted as one.
-* **Correct deadline.** For an invite the start time is when you need to *arrive*, so the drive is subtracted. For a dashboard trip it is when you *leave*.
+* **Leave at or arrive by.** An invite's start time is when you need to *arrive*, so the drive time is subtracted. On the dashboard you choose: the time is when you *leave* by default, or when you must *arrive* with the "Arrive by" toggle on. The choice is stored on the trip, so moving it later keeps the same meaning.
 * **SOC floor.** Optionally keep the battery above, say, 50% while plugged in, so the car is never empty at home even with no trips planned.
 * **Charge limit management.** If a trip needs more than 80%, the car's own limit is raised for that trip and restored afterwards. A limit set to 100% by hand and forgotten is brought back to 80% once it is no longer needed. Never touched mid charge.
 * **Notifications to the right person.** Failures (address not found, trip needs a charging stop) go to whoever booked the trip, not every phone in the house.
@@ -146,6 +146,7 @@ Create these in Settings > Devices & Services > Helpers.
 | `input_select.manual_trip_destination` | Dropdown | one option: `(search first)` |
 | `input_datetime.manual_trip_datetime` | Date and time | departure time |
 | `input_boolean.manual_trip_one_way` | Toggle | |
+| `input_boolean.manual_trip_arrive_by` | Toggle | off: the time is departure; on: the time is arrival. Optional, without it every trip is a departure |
 | `input_select.manual_trip_to_cancel` | Dropdown | one option: `(none)` |
 | `input_datetime.manual_trip_reschedule_datetime` | Date and time | used by the example reschedule script |
 
