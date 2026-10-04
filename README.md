@@ -234,7 +234,7 @@ These cost real debugging time. The code comments explain each in more detail.
 
 * The efficiency model is simple: linear cold penalty, no wind direction, elevation or HVAC. Calibrate it against your own driving; the sensor records history for that.
 * Usable battery capacity is a config value, not read from the car.
-* Recurring trips can only come from calendar invites; the dashboard books single trips.
+* Repeating trips (every Monday, say) can only come from calendar invites. The dashboard books one trip at a time, round trip by default or one way with the toggle.
 * Trips in a cluster are budgeted together, ignoring any charging in between. Conservative on purpose.
 * The charge limit is raised when a trip is booked, not shortly before it.
 * Built and tested on one setup: Tesla Model 3, Peblar, Dutch dynamic tariff, mailcow. Expect to adapt entity names.
