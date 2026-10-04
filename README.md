@@ -242,3 +242,7 @@ These cost real debugging time. The code comments explain each in more detail.
 ## Status
 
 Personal project, shared as is. The calendar and trip side runs on my own system; the charger side is being installed. Recurring invites and the SOC floor are newer and less tested than the rest. Issues and ideas welcome, support not guaranteed.
+
+## Licence
+
+MIT, see [LICENSE](LICENSE).
