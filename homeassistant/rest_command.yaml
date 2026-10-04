@@ -1,0 +1,13 @@
+# Add to configuration.yaml (needs a Home Assistant restart).
+# Replace <evcc_host> with your evcc address (the HA add-on listens on 7070).
+# Give evcc a fixed address: these calls fail silently after a DHCP change.
+
+rest_command:
+  evcc_set_soc_plan:
+    url: "http://<evcc_host>:7070/api/vehicles/{{ vehicle }}/plan/soc/{{ soc }}/{{ time }}"
+    method: post
+    timeout: 10
+  evcc_delete_soc_plan:
+    url: "http://<evcc_host>:7070/api/vehicles/{{ vehicle }}/plan/soc"
+    method: delete
+    timeout: 10

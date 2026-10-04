@@ -1,0 +1,188 @@
+# Automation: publish the next trip to evcc as a vehicle charging plan,
+# and manage the car's own charge limit (evcc reads it but will not raise it).
+#
+# Paste into Settings > Automations > (new) > Edit in YAML.
+# Replace <car> with your Tesla Fleet entity slug, and the fallback notify
+# service with your own phone.
+#
+# Needs: rest_command.yaml, input_boolean.evcc_car_limit_raised and
+# input_text.next_trip_notify_service (see README).
+#
+# Charge limit policy: 80% is the default. Above 80% only while a trip needs
+# it. The limit comes back down once something positively says it is no
+# longer needed (HA raised it and the trip is gone, a charge actually reached
+# it, or a booked trip needs no more than 80%). Never lowered while charging.
+# Every limit write is read back from the car before it is recorded.
+
+alias: evcc publish trip plan
+description: >-
+  Push next trip SOC and deadline to evcc as a vehicle plan. Raise the car
+  charge limit for trips needing more than the normal limit and restore it
+  afterwards. Never lowers mid-charge.
+mode: restart
+triggers:
+  - trigger: state
+    id: trip
+    entity_id:
+      - input_number.next_trip_required_soc
+      - input_datetime.next_trip_deadline
+    not_from: [unavailable, unknown]
+    not_to: [unavailable, unknown]
+  - trigger: homeassistant
+    id: startup
+    event: start
+  - trigger: time_pattern
+    id: hourly
+    hours: "/1"
+  - trigger: state
+    id: charge_ended
+    entity_id: sensor.<car>_charging
+    from: "charging"
+    not_to: [unavailable, unknown]
+actions:
+  - delay: "00:00:10"
+  - variables:
+      vehicle: tesla
+      car_limit_entity: number.<car>_charge_limit
+      normal_limit: 80
+      car_limit: "{{ states('number.<car>_charge_limit') | float(0) }}"
+      car_soc: "{{ states('sensor.<car>_battery_level') | float(0) }}"
+      charging_state: "{{ states('sensor.<car>_charging') }}"
+      fired_by: "{{ trigger.id if trigger is defined else 'manual' }}"
+      soc_raw: "{{ states('input_number.next_trip_required_soc') | float(0) }}"
+      soc: "{{ [soc_raw | round(0, 'ceil') | int, 100] | min }}"
+      deadline_ts: "{{ state_attr('input_datetime.next_trip_deadline', 'timestamp') | float(0) }}"
+      now_ts: "{{ as_timestamp(now()) }}"
+      idle: "{{ soc_raw <= 0 or deadline_ts > now_ts + 365 * 86400 }}"
+      plan_ts: "{{ [deadline_ts, now_ts + 900] | max }}"
+      plan_time: "{{ plan_ts | timestamp_custom('%Y-%m-%dT%H:%M:%SZ', false) }}"
+      raise_needed: "{{ not idle and soc > normal_limit }}"
+      notify_raw: "{{ states('input_text.next_trip_notify_service') }}"
+      notify_service: >-
+        {{ notify_raw if notify_raw.startswith('notify.')
+           else 'notify.mobile_app_<your_phone>' }}
+  - alias: Publish or clear evcc plan
+    choose:
+      - conditions: "{{ idle }}"
+        sequence:
+          - action: rest_command.evcc_delete_soc_plan
+            data:
+              vehicle: "{{ vehicle }}"
+            response_variable: resp
+            continue_on_error: true
+    default:
+      - action: rest_command.evcc_set_soc_plan
+        data:
+          vehicle: "{{ vehicle }}"
+          soc: "{{ soc }}"
+          time: "{{ plan_time }}"
+        response_variable: resp
+        continue_on_error: true
+  - if:
+      - condition: template
+        value_template: "{{ resp is not defined or resp.status >= 300 }}"
+    then:
+      - action: persistent_notification.create
+        data:
+          notification_id: evcc_plan_publish
+          title: evcc plan not updated
+          message: >-
+            Could not {{ 'clear' if idle else 'set' }} the charging plan in evcc
+            ({{ resp.status if resp is defined else 'no response' }}).
+  - alias: Car charge limit
+    choose:
+      - alias: Raise for an upcoming trip
+        conditions: "{{ raise_needed and car_limit < soc }}"
+        sequence:
+          - action: number.set_value
+            target:
+              entity_id: "{{ car_limit_entity }}"
+            data:
+              value: "{{ soc }}"
+            continue_on_error: true
+          - alias: Wait for the car to confirm
+            wait_template: "{{ states(car_limit_entity) | float(0) >= soc }}"
+            timeout: "00:00:30"
+            continue_on_timeout: true
+          - if:
+              - condition: template
+                value_template: "{{ wait.completed }}"
+            then:
+              - action: input_boolean.turn_on
+                target:
+                  entity_id: input_boolean.evcc_car_limit_raised
+              - action: persistent_notification.dismiss
+                data:
+                  notification_id: evcc_car_limit
+              - action: "{{ notify_service }}"
+                data:
+                  title: Tesla charge limit raised
+                  message: >-
+                    Your next trip needs {{ soc }}%, so the charge limit is raised
+                    until then. It goes back to {{ normal_limit }}% afterwards.
+                continue_on_error: true
+            else:
+              - action: persistent_notification.create
+                data:
+                  notification_id: evcc_car_limit
+                  title: Tesla charge limit not raised
+                  message: >-
+                    Could not raise the charge limit to {{ soc }}% (car asleep or
+                    unreachable). Retrying hourly.
+      - alias: Lower to the normal limit
+        conditions:
+          - alias: It is actually above normal, and no trip needs it
+            condition: template
+            value_template: "{{ not raise_needed and car_limit > normal_limit }}"
+          - alias: Never interrupt a charge in progress
+            condition: template
+            value_template: "{{ charging_state != 'charging' }}"
+          - alias: Something must positively say the high limit is not needed
+            condition: template
+            value_template: >-
+              {{ is_state('input_boolean.evcc_car_limit_raised', 'on')
+                 or (fired_by == 'charge_ended' and car_soc >= car_limit - 1)
+                 or (not idle and soc <= normal_limit) }}
+        sequence:
+          - action: number.set_value
+            target:
+              entity_id: "{{ car_limit_entity }}"
+            data:
+              value: "{{ normal_limit }}"
+            continue_on_error: true
+          - alias: Wait for the car to confirm
+            wait_template: "{{ states(car_limit_entity) | float(999) <= normal_limit }}"
+            timeout: "00:00:30"
+            continue_on_timeout: true
+          - if:
+              - condition: template
+                value_template: "{{ wait.completed }}"
+            then:
+              - alias: Only tell them if a human raised it, not if we did
+                if:
+                  - condition: state
+                    entity_id: input_boolean.evcc_car_limit_raised
+                    state: "off"
+                then:
+                  - action: "{{ notify_service }}"
+                    data:
+                      title: Tesla charge limit reset
+                      message: >-
+                        The limit was {{ car_limit | round(0) | int }}% with nothing
+                        needing more than {{ normal_limit }}%, so it is back to
+                        {{ normal_limit }}%.
+                    continue_on_error: true
+              - action: input_boolean.turn_off
+                target:
+                  entity_id: input_boolean.evcc_car_limit_raised
+              - action: persistent_notification.dismiss
+                data:
+                  notification_id: evcc_car_limit
+            else:
+              - action: persistent_notification.create
+                data:
+                  notification_id: evcc_car_limit
+                  title: Tesla charge limit not restored
+                  message: >-
+                    Could not lower the charge limit to {{ normal_limit }}% (car
+                    asleep or unreachable). Retrying hourly.

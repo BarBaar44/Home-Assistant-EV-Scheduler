@@ -1,0 +1,44 @@
+# /config/pyscript/config.yaml
+#
+# configuration.yaml then only needs:
+#   pyscript: !include pyscript/config.yaml
+#
+# Keeping the config under /config/pyscript means saving it reloads the
+# apps without a Home Assistant restart. Run pyscript.reload once if in doubt.
+
+allow_all_imports: true
+hass_is_global: true
+
+apps:
+  tesla_calendar:
+    imap_host: mail.example.com
+    imap_user: tesla@example.com
+    imap_pass: !secret tesla_mailbox_password
+    smtp_host: mail.example.com
+    smtp_port: 587
+    smtp_user: tesla@example.com          # MUST equal imap_user (it is the From: and the ORGANIZER)
+    smtp_pass: !secret tesla_mailbox_password
+    nominatim_user_agent: "my-ha-ev-scheduler/1.0 (contact: you@example.com)"
+    # --- optional, defaults shown ---
+    send_accept_replies: true
+    manual_trip_duration_min: 60
+    retention_days: 30
+
+  tesla_trip_energy:
+    nominatim_user_agent: "my-ha-ev-scheduler/1.0 (contact: you@example.com)"   # same as above
+    usable_battery_kwh: 79.0              # your car's usable capacity
+    safety_buffer_pct: 10                 # arrival buffer on top of the calculated need
+    lookahead_days: 7
+    default_notify_service: "notify.mobile_app_<your_phone>"   # NEVER notify.notify (broadcasts)
+    # --- optional, defaults shown ---
+    efficiency_sensor: "sensor.tesla_adjusted_efficiency_wh_km"
+    fallback_efficiency_wh_km: 153        # used when the efficiency sensor is unavailable
+    prep_buffer_min: 15                   # time to get out of the door
+    trip_cluster_hours: 12                # trips this close together are budgeted together
+    all_day_departure_hour: 8
+    near_trip_hours: 6
+    route_cache_hours: 6
+    idle_required_soc: 0
+    floor_soc: 0                          # e.g. 50 keeps the car at least 50% while plugged in; 0 = off
+    floor_ready_hour: 7
+    soc_sensor: "sensor.<car>_battery_level"

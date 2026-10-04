@@ -1,0 +1,76 @@
+# Minimal starting point for the "Plan a trip" dashboard form.
+#
+# NOT the author's exact deployed config (that lives in the HA UI and has
+# more validation and a guided card layout). This is a reduced version that
+# shows how the pieces connect. Read it, adapt it, test it.
+#
+# Flow: type a destination and press Enter -> the automation calls
+# pyscript.search_destination -> results land in
+# input_select.manual_trip_destination -> pick one, set the time ->
+# script.submit_manual_trip calls pyscript.schedule_manual_trip ONCE.
+
+script:
+  submit_manual_trip:
+    alias: Submit manual trip
+    mode: single
+    sequence:
+      - variables:
+          pick: "{{ states('input_select.manual_trip_destination') }}"
+          mapping: "{{ state_attr('sensor.manual_trip_destination_results', 'mapping') or {} }}"
+          entry: "{{ mapping.get(pick, {}) }}"
+      - if:
+          - condition: template
+            value_template: "{{ not entry.get('geo') }}"
+        then:
+          - action: pyscript.set_trip_form_status
+            data:
+              level: warning
+              message: Search for a destination and pick one from the list first.
+              source: form
+          - stop: nothing picked
+      # Organizer is whoever tapped the button: context.user_id is resolved
+      # to an email through /config/pyscript/tesla_household.json.
+      - action: pyscript.schedule_manual_trip
+        data:
+          trip_datetime: "{{ states('input_datetime.manual_trip_datetime') }}"
+          location: "{{ entry.display }}"
+          display_name: "{{ entry.short }}"
+          geo: "{{ entry.geo }}"
+          one_way: "{{ is_state('input_boolean.manual_trip_one_way', 'on') }}"
+          organizer_name: "{{ context.user_id }}"
+
+  cancel_selected_manual_trip:
+    alias: Cancel selected manual trip
+    sequence:
+      - action: pyscript.cancel_manual_trip
+        data:
+          selection: "{{ states('input_select.manual_trip_to_cancel') }}"
+
+  reschedule_selected_manual_trip:
+    alias: Reschedule selected manual trip
+    sequence:
+      - action: pyscript.reschedule_manual_trip
+        data:
+          selection: "{{ states('input_select.manual_trip_to_cancel') }}"
+          new_datetime: "{{ states('input_datetime.manual_trip_reschedule_datetime') }}"
+
+automation:
+  # Enter (or the arrow key on a phone keyboard) commits the text field,
+  # which is what triggers the search. A dashboard "Search" button does NOT
+  # work on phones: HA's button handler prevents the text field from
+  # committing, so the button would search the previous text.
+  - alias: Trip form search on enter
+    mode: restart
+    triggers:
+      - trigger: state
+        entity_id: input_text.manual_trip_location
+    conditions:
+      - condition: template
+        value_template: >-
+          {{ trigger.to_state.state | length >= 3
+             and trigger.to_state.state
+                 != state_attr('sensor.manual_trip_destination_results', 'query') }}
+    actions:
+      - action: pyscript.search_destination
+        data:
+          query: "{{ trigger.to_state.state }}"

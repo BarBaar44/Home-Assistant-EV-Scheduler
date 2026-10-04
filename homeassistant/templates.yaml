@@ -1,0 +1,66 @@
+# Template sensors used by evcc.yaml. Replace <car> with the slug the Tesla
+# Fleet integration gave your car (it follows the car's name in the Tesla app).
+
+template:
+  - sensor:
+      # Maps the Tesla charging state to something evcc's Home Assistant
+      # vehicle understands, and forces "disconnected" whenever the car is not
+      # home, so evcc never starts or stops a session at a public charger.
+      # Fails closed when the car is asleep or the Fleet API drops out.
+      - name: "Tesla evcc Charge Status"
+        unique_id: tesla_evcc_charge_status
+        state: >
+          {% if not is_state('device_tracker.<car>_location', 'home') %}
+            disconnected
+          {% elif not has_value('sensor.<car>_charging') %}
+            disconnected
+          {% else %}
+            {{ states('sensor.<car>_charging') }}
+          {% endif %}
+
+      # Signed per-phase grid current for evcc's circuit limit (+ = import).
+      # P1 readers usually report unsigned whole amps, so export would look
+      # like import and evcc would throttle during solar surplus. Computed
+      # from per-phase power instead. This reader reports power in kW, hence
+      # the * 1000. Adjust the source entity names to your P1 integration.
+      - name: "Grid current L1 signed"
+        unique_id: grid_current_l1_signed
+        unit_of_measurement: "A"
+        device_class: current
+        state_class: measurement
+        availability: >
+          {{ has_value('sensor.p1_power_consumed_phase_1')
+             and has_value('sensor.p1_power_produced_phase_1')
+             and states('sensor.p1_voltage_phase_1') | float(0) > 100 }}
+        state: >
+          {{ ((states('sensor.p1_power_consumed_phase_1') | float
+               - states('sensor.p1_power_produced_phase_1') | float) * 1000
+              / states('sensor.p1_voltage_phase_1') | float) | round(2) }}
+
+      - name: "Grid current L2 signed"
+        unique_id: grid_current_l2_signed
+        unit_of_measurement: "A"
+        device_class: current
+        state_class: measurement
+        availability: >
+          {{ has_value('sensor.p1_power_consumed_phase_2')
+             and has_value('sensor.p1_power_produced_phase_2')
+             and states('sensor.p1_voltage_phase_2') | float(0) > 100 }}
+        state: >
+          {{ ((states('sensor.p1_power_consumed_phase_2') | float
+               - states('sensor.p1_power_produced_phase_2') | float) * 1000
+              / states('sensor.p1_voltage_phase_2') | float) | round(2) }}
+
+      - name: "Grid current L3 signed"
+        unique_id: grid_current_l3_signed
+        unit_of_measurement: "A"
+        device_class: current
+        state_class: measurement
+        availability: >
+          {{ has_value('sensor.p1_power_consumed_phase_3')
+             and has_value('sensor.p1_power_produced_phase_3')
+             and states('sensor.p1_voltage_phase_3') | float(0) > 100 }}
+        state: >
+          {{ ((states('sensor.p1_power_consumed_phase_3') | float
+               - states('sensor.p1_power_produced_phase_3') | float) * 1000
+              / states('sensor.p1_voltage_phase_3') | float) | round(2) }}

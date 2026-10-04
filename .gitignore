@@ -5,6 +5,7 @@ config.yaml
 
 # Runtime state written by the pyscript apps (personal data: trips, addresses, emails)
 *.json
+!*.example.json
 *.ics
 *.ics.corrupt
 *.tmp

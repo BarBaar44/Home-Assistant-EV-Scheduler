@@ -1,0 +1,104 @@
+# Weather-adjusted efficiency sensor for trip energy calculations
+# ------------------------------------------------------------------------
+# Add to configuration.yaml (or template.yaml), then create the seven
+# input_number helpers listed at the bottom.
+#
+# Model: base_wh_km * temp_factor * (1 + wind_penalty + rain_penalty)
+#   - temp_factor ramps from 1.0 at the mild reference temperature to
+#     1 + cold_penalty at/below the cold reference.
+#   - wind_penalty scales linearly with wind speed above a calm threshold.
+#   - rain_penalty is a flat bump when precipitation is present.
+#
+# THE NAME SETS THE ENTITY ID, not unique_id. "Tesla Adjusted Efficiency Wh
+# Km" slugs to sensor.tesla_adjusted_efficiency_wh_km, which is what
+# tesla_trip_energy.py reads. Rename it and you must set
+# `efficiency_sensor:` in the app config, or every trip silently falls back
+# to the baseline.
+#
+# WIND UNITS. Weather entities report wind_speed in the unit given by their
+# wind_speed_unit attribute (OpenWeatherMap: m/s). The template normalises
+# to km/h rather than assuming.
+#
+# Replace weather.openweathermap with your own weather entity.
+
+template:
+  - sensor:
+      - name: "Tesla Adjusted Efficiency Wh Km"
+        unique_id: tesla_adjusted_efficiency_wh_km
+        unit_of_measurement: "Wh/km"
+        state_class: measurement
+        availability: >
+          {{ has_value('weather.openweathermap') }}
+        state: >
+          {% set weather_entity = 'weather.openweathermap' %}
+          {% set base = states('input_number.tesla_base_efficiency_wh_km') | float(153) %}
+          {% set temp = state_attr(weather_entity, 'temperature') | float(15) %}
+          {% set condition = states(weather_entity) %}
+
+          {# --- wind, normalised to km/h --- #}
+          {% set wind_raw = state_attr(weather_entity, 'wind_speed') | float(0) %}
+          {% set wind_unit = state_attr(weather_entity, 'wind_speed_unit') | default('km/h', true) %}
+          {% if wind_unit == 'm/s' %}
+            {% set wind = wind_raw * 3.6 %}
+          {% elif wind_unit == 'mph' %}
+            {% set wind = wind_raw * 1.60934 %}
+          {% elif wind_unit == 'kn' %}
+            {% set wind = wind_raw * 1.852 %}
+          {% else %}
+            {% set wind = wind_raw %}
+          {% endif %}
+
+          {# --- temperature ramp --- #}
+          {% set cold_ref = states('input_number.efficiency_cold_ref_temp') | float(0) %}
+          {% set mild_ref = states('input_number.efficiency_mild_ref_temp') | float(15) %}
+          {% set cold_penalty_pct = states('input_number.efficiency_cold_penalty_pct') | float(27.5) %}
+
+          {% if temp >= mild_ref %}
+            {% set temp_factor = 1.0 %}
+          {% elif temp <= cold_ref %}
+            {% set temp_factor = 1 + (cold_penalty_pct / 100) %}
+          {% else %}
+            {% set span = [mild_ref - cold_ref, 0.1] | max %}
+            {% set frac = (mild_ref - temp) / span %}
+            {% set temp_factor = 1 + (frac * (cold_penalty_pct / 100)) %}
+          {% endif %}
+
+          {# --- wind penalty --- #}
+          {% set wind_threshold = states('input_number.efficiency_wind_threshold_kmh') | float(15) %}
+          {% set wind_penalty_per_kmh = states('input_number.efficiency_wind_penalty_pct_per_kmh') | float(0.4) %}
+          {% set wind_excess = [wind - wind_threshold, 0] | max %}
+          {% set wind_penalty = (wind_excess * wind_penalty_per_kmh) / 100 %}
+
+          {# --- precipitation penalty --- #}
+          {% set rain_penalty_pct = states('input_number.efficiency_rain_penalty_pct') | float(8) %}
+          {% set wet_conditions = [
+               'rainy', 'pouring', 'snowy', 'snowy-rainy', 'hail',
+               'lightning-rainy'
+             ] %}
+          {% set rain_penalty = (rain_penalty_pct / 100) if condition in wet_conditions else 0 %}
+
+          {{ (base * temp_factor * (1 + wind_penalty + rain_penalty)) | round(1) }}
+        attributes:
+          base_wh_km: "{{ states('input_number.tesla_base_efficiency_wh_km') | float(153) }}"
+          outside_temp_c: "{{ state_attr('weather.openweathermap', 'temperature') }}"
+          wind_speed_raw: "{{ state_attr('weather.openweathermap', 'wind_speed') }}"
+          wind_speed_unit: "{{ state_attr('weather.openweathermap', 'wind_speed_unit') }}"
+          condition: "{{ states('weather.openweathermap') }}"
+
+# ------------------------------------------------------------------------
+# Required input_number helpers (create in the UI or as YAML):
+#
+# input_number:
+#   tesla_base_efficiency_wh_km:        # 100..250, step 1, initial 153, Wh/km
+#   efficiency_cold_ref_temp:           # -20..10, step 1, initial 0, °C
+#   efficiency_mild_ref_temp:           # 5..25, step 1, initial 15, °C
+#   efficiency_cold_penalty_pct:        # 0..60, step 0.5, initial 27.5, %
+#   efficiency_wind_threshold_kmh:      # 0..40, step 1, initial 15, km/h
+#   efficiency_wind_penalty_pct_per_kmh # 0..2, step 0.05, initial 0.4, %
+#   efficiency_rain_penalty_pct:        # 0..30, step 0.5, initial 8, %
+#
+# `initial` only applies when a helper is first created.
+#
+# Known limitations: linear cold curve, no wind direction, no elevation or
+# HVAC modelling. state_class: measurement records history so you can
+# calibrate against real driving data.
