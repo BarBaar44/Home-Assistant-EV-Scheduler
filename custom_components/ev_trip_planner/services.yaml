@@ -1,0 +1,90 @@
+search:
+  fields:
+    query:
+      required: true
+      example: "lidl delft"
+      selector:
+        text:
+    config_entry_id: &entry
+      selector:
+        config_entry:
+          integration: ev_trip_planner
+
+clear_search:
+  fields:
+    config_entry_id: *entry
+
+schedule:
+  fields:
+    start:
+      required: true
+      example: "2026-10-09T08:00:00"
+      selector:
+        datetime:
+    place:
+      required: true
+      example: "Markt 87, Delft"
+      selector:
+        text:
+    location:
+      required: true
+      example: "Markt 87, 2611 GW Delft, Nederland"
+      selector:
+        text:
+    geo:
+      example: "52.011000,4.358000"
+      selector:
+        text:
+    user_id:
+      selector:
+        text:
+    one_way:
+      default: false
+      selector:
+        boolean:
+    arrive_by:
+      default: false
+      selector:
+        boolean:
+    config_entry_id: *entry
+
+move:
+  fields:
+    uid:
+      required: true
+      selector:
+        text:
+    start:
+      required: true
+      selector:
+        datetime:
+    config_entry_id: *entry
+
+cancel:
+  fields:
+    uid:
+      required: true
+      selector:
+        text:
+    config_entry_id: *entry
+
+set_status:
+  fields:
+    level:
+      required: true
+      selector:
+        select:
+          options: ["ok", "info", "success", "warning", "error"]
+    message:
+      required: true
+      selector:
+        text:
+    config_entry_id: *entry
+
+clear_status:
+  fields:
+    config_entry_id: *entry
+
+refresh:
+  fields:
+    config_entry_id: *entry

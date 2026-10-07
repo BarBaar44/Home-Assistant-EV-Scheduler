@@ -16,7 +16,10 @@ Invite your car to a meeting, or book a trip from a dashboard card, and the car 
   evcc: "22% by 13:02", charged from solar or the cheapest hours before then
 ```
 
-> **Status, October 2026.** The trip logic runs as two [pyscript](https://github.com/custom-components/pyscript) apps (this repo, `pyscript/`). A proper Home Assistant integration, installable from HACS, is being built in this repo to replace them. It will implement the same [EV trip planner contract](https://github.com/BarBaar44/EV-Trip-Card/blob/main/CONTRACT.md), so the dashboard card keeps working unchanged.
+> **Status, October 2026.** Two ways to run the trip logic, both serving the same [EV trip planner contract](https://github.com/BarBaar44/EV-Trip-Card/blob/main/CONTRACT.md), so the dashboard card works with either:
+>
+> * **EV Trip Planner integration** (`custom_components/ev_trip_planner`, installable from HACS). New, version 0.1, not yet run on a live system. See [MIGRATION.md](MIGRATION.md).
+> * **pyscript apps** (`pyscript/`). What runs on my system today; the setup below describes them.
 
 ## Why
 
@@ -66,6 +69,8 @@ The two helpers in the middle are the whole interface to charging. Everything ab
 ## Repository layout
 
 ```
+custom_components/ev_trip_planner/   the integration (config flow, sensors, services)
+tests/                               its tests (pytest-homeassistant-custom-component)
 pyscript/
   apps/
     trip_scheduler.py          the card's backend: search, schedule, move, cancel, status
@@ -103,7 +108,18 @@ evcc.yaml                          example evcc config
 
 Nominatim (OpenStreetMap) and Waze need no API key. Please respect [Nominatim's usage policy](https://operations.osmfoundation.org/policies/nominatim/): set a real contact in `nominatim_user_agent`. Results are cached so normal use stays far below the limits.
 
-## Setup
+## Setup with the integration
+
+1. Invite Calendar entry for the car's mailbox, accept policy **Manual** (step 1 below).
+2. HACS > three dots > Custom repositories > `https://github.com/BarBaar44/Home-Assistant-EV-Scheduler`, type **Integration**. Install EV Trip Planner and restart.
+3. Settings > Devices & services > Add integration > **EV Trip Planner**: pick the trip calendar, your email as OpenStreetMap contact, usable battery capacity, the car's battery level sensor, a consumption sensor (optional, see step 4 below) and a fallback notify service.
+4. On the new entry, **Add household member** for everyone who books trips: their Home Assistant user, the email that gets the trip invites, and their phone's notify service.
+5. Options: battery floor, safety buffer, prep time and the rest.
+6. EV Trip Card with `backend: integration`, and the evcc automation reading `sensor.ev_trip_planner_plan` (see [MIGRATION.md](MIGRATION.md)).
+
+The integration needs no helpers and no pyscript. Its plan is on `sensor.ev_trip_planner_plan`: state the SOC, attributes `kind` (trip, floor, idle), `deadline`, `place`, `km` and `notify_service`.
+
+## Setup with pyscript
 
 ### 1. Mailbox and Invite Calendar
 
@@ -205,7 +221,7 @@ These cost real debugging time. The code comments explain each in more detail.
 ## Limitations
 
 * The efficiency model is simple: linear cold penalty, no wind direction, elevation or HVAC. Calibrate it against your own driving; the sensor records history for that.
-* Drive times use current traffic, not the predicted traffic at departure. Planned for the integration.
+* The pyscript apps route on current traffic; the integration on predicted traffic at the departure time.
 * Usable battery capacity is a config value, not read from the car.
 * Repeating trips (every Monday, say) can only come from calendar invites. The card books one trip at a time.
 * Trips in a cluster are budgeted together, ignoring any charging in between. Conservative on purpose.

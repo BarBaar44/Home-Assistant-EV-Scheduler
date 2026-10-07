@@ -435,9 +435,13 @@ def check_next_trip_energy(**kwargs):
     else:
         _publish_plan(plan_soc, plan_deadline, plan_kind)
 
+    # A real route clears an earlier "route estimated" alert, so the next
+    # Waze failure is reported again. Only that one: the charging stop
+    # alert shares the first event's key and used to repeat every run.
     cleared = False
     for key in succeeded_keys:
-        if alerted_map.pop(key, None) is not None:
+        if alerted_map.get(key) == "route_estimated":
+            alerted_map.pop(key, None)
             cleared = True
     if cleared:
         json_store.save_json_map(ALERTED_PATH, alerted_map)
