@@ -16,6 +16,8 @@ Invite your car to a meeting, or book a trip from a dashboard card, and the car 
   evcc: "22% by 13:02", charged from solar or the cheapest hours before then
 ```
 
+> **Status, October 2026.** The trip logic runs as two [pyscript](https://github.com/custom-components/pyscript) apps (this repo, `pyscript/`). A proper Home Assistant integration, installable from HACS, is being built in this repo to replace them. It will implement the same [EV trip planner contract](https://github.com/BarBaar44/EV-Trip-Card/blob/main/CONTRACT.md), so the dashboard card keeps working unchanged.
+
 ## Why
 
 Smart charging tools are good at *how* to charge: solar surplus, cheap hours, load balancing. They don't know *when you need the car and for what*. The usual fix is setting a departure time and target by hand in an app, which you forget exactly on the day it matters.
@@ -24,11 +26,11 @@ Your calendar already knows. This project reads it, works out the energy each tr
 
 ## What it does
 
-* **Calendar invites as trip input.** A dedicated mailbox (say `car@yourdomain`) receives normal calendar invites from any client: Outlook, Gmail, Nextcloud, Evolution. Invites are parsed directly from the mail (iMIP), so it works with any sender and any calendar server.
-* **Auto accept.** The car accepts an invite once its location can be found on the map, so it shows as attending in the organizer's calendar. No location? It replies asking for one.
-* **Dashboard trip form.** Book, move or cancel a trip from Home Assistant. Destination search shows a pick list (useful for "Lidl Amsterdam", which has a dozen branches) and pins the chosen coordinates to the trip. The person who booked it gets a real calendar invite.
-* **Real energy estimate.** Waze routing for distance, and drive time on predicted traffic at the moment you leave (rush hour counts as rush hour), a weather adjusted Wh/km figure (temperature, wind, rain), round trip or one way, and a safety buffer. Trips close together are budgeted as one.
-* **Leave at or arrive by.** An invite's start time is when you need to *arrive*, so the drive time is subtracted. On the dashboard you choose: the time is when you *leave* by default, or when you must *arrive* with the "Arrive by" toggle on. The choice is stored on the trip, so moving it later keeps the same meaning.
+* **Calendar invites as trip input.** A dedicated mailbox (say `car@yourdomain`) receives normal calendar invites from any client: Outlook, Gmail, Nextcloud, Evolution. The mailbox side is handled by [Invite Calendar](https://github.com/BarBaar44/invite-calendar), a separate integration.
+* **Auto accept.** The car accepts an invite once its location can be found on the map, so it shows as attending in the organizer's calendar. No location? Invite Calendar replies asking for one.
+* **Dashboard card.** [EV Trip Card](https://github.com/BarBaar44/EV-Trip-Card) books, moves and cancels trips and shows the charging plan. Destination search shows a pick list (useful for "Lidl Amsterdam", which has a dozen branches) and pins the chosen coordinates to the trip. The person who booked it gets a real calendar invite.
+* **Real energy estimate.** Waze routing for distance and drive time, a weather adjusted Wh/km figure (temperature, wind, rain), round trip or one way, and a safety buffer. Trips close together are budgeted as one.
+* **Leave at or arrive by.** An invite's start time is when you need to *arrive*, so the drive time is subtracted. On the card you choose: leave at, or arrive by. An arrive by trip you can no longer make in time is refused instead of booked.
 * **SOC floor.** Optionally keep the battery above, say, 50% while plugged in, so the car is never empty at home even with no trips planned.
 * **Charge limit management.** If a trip needs more than 80%, the car's own limit is raised for that trip and restored afterwards. A limit set to 100% by hand and forgotten is brought back to 80% once it is no longer needed. Never touched mid charge.
 * **Notifications to the right person.** Failures (address not found, trip needs a charging stop) go to whoever booked the trip, not every phone in the house.
@@ -36,21 +38,21 @@ Your calendar already knows. This project reads it, works out the energy each tr
 ## Architecture
 
 ```
- Any calendar app                       HA dashboard "Plan a trip"
-   │ (invite email)                       │
-   ▼                                      ▼
- IMAP mailbox ──► tesla_calendar.py ◄── pyscript services
-                       │  parse iMIP, auto accept, send invites
-                       ▼
-                 /config/www/tesla.ics ──► Remote Calendar ──► calendar.tesla
-                                                                   │
-                                                                   ▼
-                                                        tesla_trip_energy.py
-                                    Nominatim (geocode) ◄──┤ Waze (route)
-                                    weather Wh/km sensor ◄──┘
-                                                                   │
-                       input_number.next_trip_required_soc ◄───────┤
-                       input_datetime.next_trip_deadline   ◄───────┘
+ Any calendar app                          EV Trip Card (dashboard)
+   │ (invite email)                          │ pyscript.ev_trip_* services
+   ▼                                         ▼
+ car@ mailbox ──► Invite Calendar ◄──── trip_scheduler.py
+                   │ IMAP/SMTP, iMIP,        search, validate, reachability,
+                   │ RSVP, .ics store        create / move / cancel events
+                   ▼
+              calendar.tesla ──────────► ev_trip_energy.py
+                                          geocode (Nominatim), route (Waze),
+                                          weather Wh/km, clustering, SOC floor,
+                                          accept invites, alerts
+                                             │
+           sensor.ev_trip_planner_plan ◄─────┤  (for the card)
+           input_number.next_trip_required_soc ◄─┤
+           input_datetime.next_trip_deadline   ◄─┘
                                    │
                                    ▼
                   automation "evcc publish trip plan"  ──► car charge limit
@@ -59,21 +61,20 @@ Your calendar already knows. This project reads it, works out the energy each tr
                  evcc: solar, dynamic prices, load balancing ──► charger ──► car
 ```
 
-The two helpers in the middle are the whole interface. Everything above them answers "how much, by when". Everything below is evcc deciding how.
+The two helpers in the middle are the whole interface to charging. Everything above them answers "how much, by when". Everything below is evcc deciding how.
 
 ## Repository layout
 
 ```
 pyscript/
   apps/
-    tesla_calendar.py          mailbox polling, invites, accept, manual trip services
-    tesla_trip_energy.py       geocode, route, energy, SOC floor, publishes the helpers
+    trip_scheduler.py          the card's backend: search, schedule, move, cancel, status
+    ev_trip_energy.py          geocode, route, energy, SOC floor, accept, publishes the plan
   modules/
-    tesla_file_io.py           atomic file I/O (pyscript blocks bare open())
-    tesla_ics_store.py         .ics storage, recurring events, iMIP bookkeeping
-    tesla_json_store.py        small JSON maps and caches
-    tesla_geocode.py           Nominatim with a shared cache, destination search
-    tesla_outbound_email.py    invite, accept and reply emails
+    routing.py                 Waze (via curl_cffi) and straight line distance
+    geocode.py                 Nominatim with a shared cache, destination search
+    json_store.py              small JSON maps and caches
+    atomic_io.py               atomic file I/O (pyscript blocks bare open())
   config.example.yaml          app configuration
   tesla_household.example.json who can book trips, and where to notify them
 homeassistant/
@@ -81,7 +82,6 @@ homeassistant/
   templates.yaml                   evcc charge status and signed grid currents
   rest_command.yaml                calls to the evcc API
   automation_evcc_publish_trip_plan.yaml
-  trip_form_scripts.example.yaml   minimal dashboard form scripts (starting point)
 evcc.yaml                          example evcc config
 ```
 
@@ -90,9 +90,10 @@ evcc.yaml                          example evcc config
 | Part | Used here | Swappable? |
 |---|---|---|
 | Home Assistant | with HACS | required |
-| [pyscript](https://github.com/custom-components/pyscript) | HACS integration | required |
+| [pyscript](https://github.com/custom-components/pyscript) | HACS integration | required (until the integration replaces it) |
+| [Invite Calendar](https://github.com/BarBaar44/invite-calendar) | HACS integration, 1.2.2 or later | required |
 | A mailbox with IMAP and SMTP | self hosted mailcow | any provider that allows IMAP and SMTP login |
-| Remote Calendar integration | built in | required |
+| [EV Trip Card](https://github.com/BarBaar44/EV-Trip-Card) | HACS dashboard card, 0.2.0 or later | optional, but it is the trip form |
 | A weather entity | OpenWeatherMap | any `weather.*` entity |
 | Car integration | Tesla Fleet | the trip side only needs SOC; the charge limit automation needs a writable limit |
 | [evcc](https://evcc.io) | HA add-on | optional; without it you get the two helpers and can drive any charger yourself |
@@ -104,11 +105,11 @@ Nominatim (OpenStreetMap) and Waze need no API key. Please respect [Nominatim's 
 
 ## Setup
 
-### 1. Mailbox
+### 1. Mailbox and Invite Calendar
 
-Create a mailbox for the car, e.g. `car@yourdomain`. IMAP and SMTP must use the same login: outgoing mail is sent **from** this address, and it is also the calendar ORGANIZER on trips booked from the dashboard. That keeps SPF/DKIM/DMARC aligned, so invites to Gmail do not land in spam.
+Create a mailbox for the car, e.g. `car@yourdomain`, then install Invite Calendar from HACS and add an entry for that mailbox. Name the entry so the entity is `calendar.tesla` (or change `calendar_entity` below). Set its **accept policy to Manual**: `ev_trip_energy` accepts an invite only once its location is found. Turn on the missing location reply if you like.
 
-Put the password in `secrets.yaml` as `tesla_mailbox_password`.
+Outgoing invites are sent **from** the car's mailbox, which is also the ORGANIZER of trips booked on the card. That keeps SPF/DKIM/DMARC aligned, so invites to Gmail do not land in spam.
 
 ### 2. pyscript
 
@@ -116,11 +117,12 @@ Put the password in `secrets.yaml` as `tesla_mailbox_password`.
 2. Enable "Allow all imports".
 3. Create `/config/pyscript/requirements.txt`:
    ```
-   icalendar
    requests
    pywaze
+   curl_cffi
    ```
-4. Copy `pyscript/apps/*` to `/config/pyscript/apps/` and `pyscript/modules/*` to `/config/pyscript/modules/`. The modules **must** be in `modules/`, not `apps/`: pyscript only allows imports between files from there.
+   `curl_cffi` is needed because Waze refuses plain HTTP clients, and Home Assistant pins a pywaze version without the fix.
+4. Copy `pyscript/modules/*` to `/config/pyscript/modules/` **first**, then `pyscript/apps/*` to `/config/pyscript/apps/`. The modules **must** be in `modules/`, not `apps/`: pyscript only allows imports between files from there.
 5. Copy `config.example.yaml` to `/config/pyscript/config.yaml`, fill it in, and add `pyscript: !include pyscript/config.yaml` to `configuration.yaml`.
 6. Copy `tesla_household.example.json` to `/config/pyscript/tesla_household.json`. Keys are Home Assistant user IDs (Settings > People > Users, click the user, the ID is in the URL). Notify services are named `notify.mobile_app_<device>`: check the exact name in Developer Tools > Actions.
 
@@ -128,61 +130,34 @@ Put the password in `secrets.yaml` as `tesla_mailbox_password`.
 
 ### 3. Helpers
 
-Create these in Settings > Devices & Services > Helpers.
-
-**Required by the trip energy app:**
+Create these in Settings > Devices & Services > Helpers. They are what the evcc automation reads.
 
 | Helper | Type | Notes |
 |---|---|---|
 | `input_number.next_trip_required_soc` | Number | 0 to 100, step 0.1 |
 | `input_datetime.next_trip_deadline` | Date **and time** | a date only helper silently drops the time |
 | `input_text.next_trip_notify_service` | Text | max length 255; optional but recommended |
+| `input_boolean.evcc_car_limit_raised` | Toggle | for the evcc automation |
 
-**For the dashboard trip form:**
+For the efficiency sensor: the seven `input_number` helpers listed at the bottom of `homeassistant/weather_efficiency_sensor.yaml`.
 
-| Helper | Type | Notes |
-|---|---|---|
-| `input_text.manual_trip_location` | Text | the search box |
-| `input_select.manual_trip_destination` | Dropdown | one option: `(search first)` |
-| `input_datetime.manual_trip_datetime` | Date and time | departure time |
-| `input_boolean.manual_trip_one_way` | Toggle | |
-| `input_boolean.manual_trip_arrive_by` | Toggle | off: the time is departure; on: the time is arrival. Optional, without it every trip is a departure |
-| `input_select.manual_trip_to_cancel` | Dropdown | one option: `(none)` |
-| `input_datetime.manual_trip_reschedule_datetime` | Date and time | used by the example reschedule script |
+The apps create the four `sensor.ev_trip_planner_*` entities the card reads by themselves.
 
-Dropdowns must be created by hand with one placeholder option. pyscript can rewrite their options but cannot create them.
-
-**For the evcc automation:** `input_boolean.evcc_car_limit_raised` (Toggle).
-
-**For the efficiency sensor:** the seven `input_number` helpers listed at the bottom of `homeassistant/weather_efficiency_sensor.yaml`.
-
-pyscript creates `sensor.tesla_trip_form_status`, `sensor.manual_trip_options` and `sensor.manual_trip_destination_results` itself.
-
-### 4. Calendar
-
-1. Restart pyscript (or HA). Within five minutes `/config/www/tesla.ics` appears.
-2. Add the **Remote Calendar** integration pointing at `http://<your-ha>:8123/local/tesla.ics`. Name it so the entity is `calendar.tesla`.
-
-### 5. Efficiency sensor
+### 4. Efficiency sensor
 
 Add `homeassistant/weather_efficiency_sensor.yaml` to your config, replacing `weather.openweathermap` with your weather entity. Check the result is `sensor.tesla_adjusted_efficiency_wh_km`. Set `tesla_base_efficiency_wh_km` to your car's figure (153 Wh/km is the Model 3 LR RWD EPA number).
 
-### 6. Dashboard form
+### 5. Dashboard card
 
-`homeassistant/trip_form_scripts.example.yaml` has a minimal submit script, cancel and reschedule scripts, and the "search on Enter" automation. Put the helpers in an Entities card with buttons for the scripts. A markdown card can show the status banner:
+Install [EV Trip Card](https://github.com/BarBaar44/EV-Trip-Card) from HACS (custom repository, type Dashboard) and add:
 
 ```yaml
-type: markdown
-content: >-
-  {% set s = states('sensor.tesla_trip_form_status') %}
-  {% if s in ['info','success','warning','error'] %}
-  <ha-alert alert-type="{{ s }}">{{ state_attr('sensor.tesla_trip_form_status','message') }}</ha-alert>
-  {% endif %}
+type: custom:ev-trip-card
 ```
 
-Search is triggered by pressing Enter (the arrow key on a phone keyboard), not by a button. On phones, a dashboard button prevents the text field from committing, so a "Search" button would search the previous text.
+Set the car entity options if yours are not named like mine (see the card's README).
 
-### 7. evcc (optional)
+### 6. evcc (optional)
 
 1. Install evcc (the HA add-on is easiest) and adapt `evcc.yaml`: meters, vehicle, charger and tariffs.
 2. Add `homeassistant/templates.yaml` (charge status and signed grid currents) and `homeassistant/rest_command.yaml`, then restart HA.
@@ -204,45 +179,38 @@ The hashes must match. Then pair from a phone near the car: `https://tesla.com/_
 
 ## Using it
 
-**From your calendar:** invite `car@yourdomain` to any event with a location. Within five minutes it appears in `calendar.tesla`, the car accepts, and the helpers show the SOC and deadline. Moving or cancelling the event in your calendar flows through the same way. Recurring events work.
+**From your calendar:** invite `car@yourdomain` to any event with a location. After the next mailbox poll it appears in `calendar.tesla`, the car accepts once the address is found, and the card shows the plan. Moving or cancelling the event in your calendar flows through the same way. Recurring events work.
 
-**From the dashboard:** type a destination, press Enter, pick the right result, set the departure time, Schedule. You get an invite by email with the trip attached.
+**From the card:** search a destination, pick the right result, choose leave at or arrive by, set the time, Schedule. You get an invite by email with the trip attached.
 
 **Checking the numbers:** every run logs a line like
 
 ```
-Next trip cluster (1 event(s), 1 pinned, first: 'Trip to Kerkstraat 12, Haarlem'):
+Next trip cluster (1 event(s), 1 pinned, 0 estimated, first: 'Trip to Kerkstraat 12, Haarlem'):
 58.4 km, 9.4 kWh at 161 Wh/km, target SOC 21.9% by 2026-10-06 13:02
 (event starts 14:00 as arrival, 43 min drive + 15 min buffer)
 ```
-
-Allow up to five minutes after booking: the trip app runs every five minutes.
 
 ## Design notes and gotchas
 
 These cost real debugging time. The code comments explain each in more detail.
 
 * **pyscript is not quite Python.** Each file has its own globals, so shared code must live in `modules/`. Inside a `@pyscript_executor` function, calling another function defined in a pyscript file returns an unrun coroutine, so executor functions are self contained. Generator expressions are not supported; use list comprehensions. `with` blocks are avoided.
-* **Blocking calls freeze Home Assistant.** IMAP, SMTP, HTTP and file I/O all run in executor threads.
-* **The Remote Calendar integration returns no event UIDs.** The trip app recovers them from `tesla.ics` by summary and start time.
-* **Only REQUEST and CANCEL change the calendar.** An incoming REPLY carries a stripped down copy of the event and would otherwise overwrite it.
-* **A naive datetime is not UTC.** `input_datetime` gives local wall time; treating it as UTC shifted every trip by the UTC offset.
-* **Invites go out as plain text plus an `.ics` attachment.** An inline calendar part makes Gmail on IMAP print raw iCalendar text into the message body.
-* **Writes are atomic.** A truncated `tesla.ics` would otherwise stop the pipeline for good, because processed mails are never fetched again.
-* **Ambiguous places are a choice, not a guess.** Unattended invites pick the match nearest home; the dashboard shows the list.
+* **Blocking calls freeze Home Assistant.** HTTP and file I/O run in executor threads.
+* **A naive datetime is not UTC.** The card sends local wall time; treating it as UTC shifted every trip by the UTC offset.
+* **Ambiguous places are a choice, not a guess.** Unattended invites pick the match nearest home; the card shows the list.
+* **Success must mean the trip can happen.** An arrive by trip with less time left than the drive is refused, not booked in green with a plan nobody can meet.
+* **Test doubles from observed output.** The offline tests once agreed with the code instead of with the real integration, and the trip list came up empty on the first live run.
 
 ## Limitations
 
 * The efficiency model is simple: linear cold penalty, no wind direction, elevation or HVAC. Calibrate it against your own driving; the sensor records history for that.
+* Drive times use current traffic, not the predicted traffic at departure. Planned for the integration.
 * Usable battery capacity is a config value, not read from the car.
-* Repeating trips (every Monday, say) can only come from calendar invites. The dashboard books one trip at a time, round trip by default or one way with the toggle.
+* Repeating trips (every Monday, say) can only come from calendar invites. The card books one trip at a time.
 * Trips in a cluster are budgeted together, ignoring any charging in between. Conservative on purpose.
 * The charge limit is raised when a trip is booked, not shortly before it.
 * Built and tested on one setup: Tesla Model 3, Peblar, Dutch dynamic tariff, mailcow. Expect to adapt entity names.
-
-## Status
-
-Personal project, shared as is. The calendar and trip side runs on my own system; the charger side is being installed. Recurring invites and the SOC floor are newer and less tested than the rest. Issues and ideas welcome, support not guaranteed.
 
 ## Licence
 
