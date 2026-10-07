@@ -1,0 +1,183 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "EV-ritplanner",
+        "description": "Plan het laden rond de ritten in een Invite Calendar. Voeg daarna huisgenoten toe, onder deze vermelding.",
+        "data": {
+          "calendar_entity": "Rittenagenda",
+          "nominatim_contact": "Contactadres voor OpenStreetMap",
+          "usable_battery_kwh": "Bruikbare accucapaciteit",
+          "soc_sensor": "Accuniveau van de auto",
+          "efficiency_sensor": "Verbruikssensor (Wh/km)",
+          "default_notify_service": "Reservemelding"
+        },
+        "data_description": {
+          "calendar_entity": "Een Invite Calendar-entiteit met acceptatiebeleid Handmatig: de planner accepteert een uitnodiging zodra de locatie gevonden is.",
+          "nominatim_contact": "Wordt meegestuurd met adresopzoekingen, zoals het gebruiksbeleid van OpenStreetMap vraagt.",
+          "soc_sensor": "Nodig voor de accuondergrens.",
+          "efficiency_sensor": "Optioneel, bijvoorbeeld een weersafhankelijk verbruik. Zonder deze sensor geldt de reservewaarde uit de opties.",
+          "default_notify_service": "Meldingen gaan naar degene van wie de rit is; deze wordt gebruikt als die persoon onbekend is. Nooit notify.notify."
+        }
+      }
+    },
+    "error": {
+      "notify_broadcast": "notify.notify stuurt naar elk apparaat. Kies de meldingsdienst van één persoon.",
+      "notify_unknown": "Deze meldingsdienst bestaat niet.",
+      "contact_invalid": "Vul een e-mailadres in."
+    },
+    "abort": {
+      "already_configured": "Deze agenda heeft al een ritplanner.",
+      "invite_calendar_missing": "Installeer en configureer eerst Invite Calendar."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Planning",
+        "data": {
+          "safety_buffer_pct": "Veiligheidsmarge",
+          "fallback_efficiency_wh_km": "Reserveverbruik",
+          "lookahead_days": "Vooruitkijken",
+          "prep_buffer_min": "Tijd om de deur uit te gaan",
+          "trip_cluster_hours": "Ritten samen budgetteren binnen",
+          "all_day_departure_hour": "Vertrek bij hele-dag-afspraken",
+          "floor_soc": "Accuondergrens",
+          "floor_ready_hour": "Accuondergrens klaar om",
+          "trip_duration_min": "Duur van de rit in de agenda",
+          "accept_invites": "Uitnodigingen accepteren zodra de locatie gevonden is"
+        },
+        "data_description": {
+          "floor_soc": "Houd minstens dit percentage aan zolang de auto aan de lader hangt. 0 is uit.",
+          "trip_cluster_hours": "Ritten zo dicht bij elkaar worden als één geladen."
+        }
+      }
+    }
+  },
+  "config_subentries": {
+    "member": {
+      "initiate_flow": {
+        "user": "Huisgenoot toevoegen"
+      },
+      "entry_type": "Huisgenoot",
+      "step": {
+        "user": {
+          "title": "Huisgenoot",
+          "description": "Iemand die ritten boekt met de kaart. Hun ritten komen als uitnodiging in hun mail, en meldingen over hun ritten gaan naar hun telefoon.",
+          "data": {
+            "user_id": "Home Assistant-gebruiker",
+            "email": "E-mail voor ritten",
+            "notify_service": "Melding"
+          }
+        },
+        "reconfigure": {
+          "title": "Huisgenoot",
+          "data": {
+            "user_id": "Home Assistant-gebruiker",
+            "email": "E-mail voor ritten",
+            "notify_service": "Melding"
+          }
+        }
+      },
+      "error": {
+        "member_exists": "Deze gebruiker is al huisgenoot.",
+        "contact_invalid": "Vul een e-mailadres in.",
+        "notify_broadcast": "notify.notify stuurt naar elk apparaat. Kies de meldingsdienst van één persoon.",
+        "notify_unknown": "Deze meldingsdienst bestaat niet."
+      },
+      "abort": {
+        "reconfigure_successful": "Opgeslagen."
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "trips": { "name": "Ritten" },
+      "search": { "name": "Zoeken" },
+      "status": { "name": "Status" },
+      "plan": { "name": "Plan" }
+    }
+  },
+  "exceptions": {
+    "calendar_missing": {
+      "message": "De rittenagenda {calendar} is nog niet beschikbaar."
+    },
+    "no_entry": {
+      "message": "Er is geen EV-ritplanner ingesteld."
+    },
+    "which_entry": {
+      "message": "Er is meer dan één EV-ritplanner; geef config_entry_id mee."
+    }
+  },
+  "services": {
+    "search": {
+      "name": "Bestemming zoeken",
+      "description": "Plaatsen opzoeken voor het ritformulier.",
+      "fields": {
+        "query": { "name": "Zoekopdracht", "description": "Adres, plaats of bedrijf met de plaatsnaam." },
+        "config_entry_id": { "name": "Planner", "description": "Alleen nodig bij meer dan één planner." }
+      }
+    },
+    "clear_search": {
+      "name": "Zoeken wissen",
+      "description": "Zoekresultaten en status wissen.",
+      "fields": {
+        "config_entry_id": { "name": "Planner", "description": "Alleen nodig bij meer dan één planner." }
+      }
+    },
+    "schedule": {
+      "name": "Rit plannen",
+      "description": "Een rit boeken en de huisgenoot per e-mail uitnodigen.",
+      "fields": {
+        "start": { "name": "Start", "description": "Lokale tijd: wanneer je vertrekt, of met 'aankomen om' wanneer je er moet zijn." },
+        "place": { "name": "Plaats", "description": "Korte naam, voor de titel." },
+        "location": { "name": "Locatie", "description": "Volledig adres." },
+        "geo": { "name": "Coördinaten", "description": "lat,lon gekozen bij het zoeken. Zonder wordt de locatie opgezocht." },
+        "user_id": { "name": "Gebruiker", "description": "De Home Assistant-gebruiker die boekt. Standaard de aanroeper." },
+        "one_way": { "name": "Enkele reis", "description": "Alleen de heenweg." },
+        "arrive_by": { "name": "Aankomen om", "description": "De start is wanneer je er moet zijn." },
+        "config_entry_id": { "name": "Planner", "description": "Alleen nodig bij meer dan één planner." }
+      }
+    },
+    "move": {
+      "name": "Rit verplaatsen",
+      "description": "Een rit naar een nieuwe start verplaatsen; de duur blijft gelijk.",
+      "fields": {
+        "uid": { "name": "Rit", "description": "De uid van de rit." },
+        "start": { "name": "Nieuwe start", "description": "Lokale tijd." },
+        "config_entry_id": { "name": "Planner", "description": "Alleen nodig bij meer dan één planner." }
+      }
+    },
+    "cancel": {
+      "name": "Rit annuleren",
+      "description": "Een rit annuleren; de uitnodiging wordt eerst per e-mail ingetrokken.",
+      "fields": {
+        "uid": { "name": "Rit", "description": "De uid van de rit." },
+        "config_entry_id": { "name": "Planner", "description": "Alleen nodig bij meer dan één planner." }
+      }
+    },
+    "set_status": {
+      "name": "Status zetten",
+      "description": "Een bericht in de banner van de kaart tonen.",
+      "fields": {
+        "level": { "name": "Niveau", "description": "ok, info, success, warning of error." },
+        "message": { "name": "Bericht", "description": "De tekst." },
+        "config_entry_id": { "name": "Planner", "description": "Alleen nodig bij meer dan één planner." }
+      }
+    },
+    "clear_status": {
+      "name": "Status wissen",
+      "description": "De banner van de kaart verbergen.",
+      "fields": {
+        "config_entry_id": { "name": "Planner", "description": "Alleen nodig bij meer dan één planner." }
+      }
+    },
+    "refresh": {
+      "name": "Vernieuwen",
+      "description": "De ritten en het plan nu opnieuw berekenen.",
+      "fields": {
+        "config_entry_id": { "name": "Planner", "description": "Alleen nodig bij meer dan één planner." }
+      }
+    }
+  }
+}

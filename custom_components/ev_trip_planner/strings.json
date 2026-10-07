@@ -1,0 +1,183 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "EV trip planner",
+        "description": "Plan charging around the trips on an Invite Calendar. Add household members afterwards, under this entry.",
+        "data": {
+          "calendar_entity": "Trip calendar",
+          "nominatim_contact": "Contact email for OpenStreetMap",
+          "usable_battery_kwh": "Usable battery capacity",
+          "soc_sensor": "Car battery level",
+          "efficiency_sensor": "Consumption sensor (Wh/km)",
+          "default_notify_service": "Fallback notification"
+        },
+        "data_description": {
+          "calendar_entity": "An Invite Calendar entity with accept policy Manual: the planner accepts an invite once its location is found.",
+          "nominatim_contact": "Sent with address lookups, as OpenStreetMap's usage policy asks.",
+          "soc_sensor": "Needed for the battery floor.",
+          "efficiency_sensor": "Optional, for example a weather adjusted figure. Without it the fallback from the options is used.",
+          "default_notify_service": "Alerts go to the person a trip belongs to; this one is used when that person is unknown. Never notify.notify."
+        }
+      }
+    },
+    "error": {
+      "notify_broadcast": "notify.notify sends to every device. Pick one person's notify service.",
+      "notify_unknown": "No such notify service.",
+      "contact_invalid": "Enter an email address."
+    },
+    "abort": {
+      "already_configured": "This calendar already has a trip planner.",
+      "invite_calendar_missing": "Install and set up Invite Calendar first."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Planning",
+        "data": {
+          "safety_buffer_pct": "Safety buffer",
+          "fallback_efficiency_wh_km": "Fallback consumption",
+          "lookahead_days": "Look ahead",
+          "prep_buffer_min": "Time to get out of the door",
+          "trip_cluster_hours": "Budget trips together within",
+          "all_day_departure_hour": "All day events leave at",
+          "floor_soc": "Battery floor",
+          "floor_ready_hour": "Battery floor ready by",
+          "trip_duration_min": "Trip length in the calendar",
+          "accept_invites": "Accept invites once their location is found"
+        },
+        "data_description": {
+          "floor_soc": "Keep at least this much while plugged in. 0 is off.",
+          "trip_cluster_hours": "Trips this close together are charged for as one."
+        }
+      }
+    }
+  },
+  "config_subentries": {
+    "member": {
+      "initiate_flow": {
+        "user": "Add household member"
+      },
+      "entry_type": "Household member",
+      "step": {
+        "user": {
+          "title": "Household member",
+          "description": "Someone who books trips on the card. Their trips are mailed to them as invites, and alerts about their trips go to their phone.",
+          "data": {
+            "user_id": "Home Assistant user",
+            "email": "Email for trip invites",
+            "notify_service": "Notification"
+          }
+        },
+        "reconfigure": {
+          "title": "Household member",
+          "data": {
+            "user_id": "Home Assistant user",
+            "email": "Email for trip invites",
+            "notify_service": "Notification"
+          }
+        }
+      },
+      "error": {
+        "member_exists": "This user is already a household member.",
+        "contact_invalid": "Enter an email address.",
+        "notify_broadcast": "notify.notify sends to every device. Pick one person's notify service.",
+        "notify_unknown": "No such notify service."
+      },
+      "abort": {
+        "reconfigure_successful": "Saved."
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "trips": { "name": "Trips" },
+      "search": { "name": "Search" },
+      "status": { "name": "Status" },
+      "plan": { "name": "Plan" }
+    }
+  },
+  "exceptions": {
+    "calendar_missing": {
+      "message": "The trip calendar {calendar} is not available yet."
+    },
+    "no_entry": {
+      "message": "No EV trip planner is set up."
+    },
+    "which_entry": {
+      "message": "More than one EV trip planner is set up; pass config_entry_id."
+    }
+  },
+  "services": {
+    "search": {
+      "name": "Search destination",
+      "description": "Look up places for the trip form.",
+      "fields": {
+        "query": { "name": "Query", "description": "Address, place, or business with the town." },
+        "config_entry_id": { "name": "Planner", "description": "Only needed with more than one planner." }
+      }
+    },
+    "clear_search": {
+      "name": "Clear search",
+      "description": "Clear the search results and the status.",
+      "fields": {
+        "config_entry_id": { "name": "Planner", "description": "Only needed with more than one planner." }
+      }
+    },
+    "schedule": {
+      "name": "Schedule trip",
+      "description": "Book a trip and invite the household member by email.",
+      "fields": {
+        "start": { "name": "Start", "description": "Local time: when you leave, or with arrive by, when you must be there." },
+        "place": { "name": "Place", "description": "Short name, used in the title." },
+        "location": { "name": "Location", "description": "Full address." },
+        "geo": { "name": "Coordinates", "description": "lat,lon picked in the search. Without it the location is looked up." },
+        "user_id": { "name": "User", "description": "The Home Assistant user booking it. Defaults to the caller." },
+        "one_way": { "name": "One way", "description": "Only the outbound leg." },
+        "arrive_by": { "name": "Arrive by", "description": "The start is when you must be there." },
+        "config_entry_id": { "name": "Planner", "description": "Only needed with more than one planner." }
+      }
+    },
+    "move": {
+      "name": "Move trip",
+      "description": "Move a trip to a new start; the duration is kept.",
+      "fields": {
+        "uid": { "name": "Trip", "description": "The trip's uid." },
+        "start": { "name": "New start", "description": "Local time." },
+        "config_entry_id": { "name": "Planner", "description": "Only needed with more than one planner." }
+      }
+    },
+    "cancel": {
+      "name": "Cancel trip",
+      "description": "Cancel a trip; the invite is withdrawn by email first.",
+      "fields": {
+        "uid": { "name": "Trip", "description": "The trip's uid." },
+        "config_entry_id": { "name": "Planner", "description": "Only needed with more than one planner." }
+      }
+    },
+    "set_status": {
+      "name": "Set status",
+      "description": "Show a message on the card's banner.",
+      "fields": {
+        "level": { "name": "Level", "description": "ok, info, success, warning or error." },
+        "message": { "name": "Message", "description": "The text." },
+        "config_entry_id": { "name": "Planner", "description": "Only needed with more than one planner." }
+      }
+    },
+    "clear_status": {
+      "name": "Clear status",
+      "description": "Hide the card's banner.",
+      "fields": {
+        "config_entry_id": { "name": "Planner", "description": "Only needed with more than one planner." }
+      }
+    },
+    "refresh": {
+      "name": "Refresh",
+      "description": "Recalculate the trips and the plan now.",
+      "fields": {
+        "config_entry_id": { "name": "Planner", "description": "Only needed with more than one planner." }
+      }
+    }
+  }
+}

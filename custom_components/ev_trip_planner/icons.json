@@ -1,0 +1,12 @@
+{
+  "services": {
+    "search": { "service": "mdi:map-search-outline" },
+    "clear_search": { "service": "mdi:close-circle-outline" },
+    "schedule": { "service": "mdi:calendar-plus" },
+    "move": { "service": "mdi:calendar-arrow-right" },
+    "cancel": { "service": "mdi:calendar-remove" },
+    "set_status": { "service": "mdi:message-alert-outline" },
+    "clear_status": { "service": "mdi:message-off-outline" },
+    "refresh": { "service": "mdi:refresh" }
+  }
+}

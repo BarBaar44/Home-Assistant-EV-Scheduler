@@ -1,0 +1,14 @@
+{
+  "domain": "ev_trip_planner",
+  "name": "EV Trip Planner",
+  "after_dependencies": ["invite_calendar"],
+  "codeowners": ["@BarBaar44"],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/BarBaar44/Home-Assistant-EV-Scheduler",
+  "integration_type": "service",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/BarBaar44/Home-Assistant-EV-Scheduler/issues",
+  "requirements": ["curl_cffi>=0.7"],
+  "version": "0.1.0"
+}
