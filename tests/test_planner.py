@@ -52,7 +52,18 @@ def test_deadline() -> None:
     )
     # Clamped to now.
     soon = NOW + dt.timedelta(minutes=30)
-    assert planner.deadline(soon, False, 60, 15, NOW) == NOW
+    assert planner.deadline(soon, False, 60, 15, NOW) == NOW.replace(second=0)
+
+
+def test_deadline_whole_minutes() -> None:
+    """A fractional drive time or the clamp to now never leaves seconds."""
+    start = NOW.replace(second=0) + dt.timedelta(hours=5)
+    got = planner.deadline(start, False, 37.4, 15, NOW)
+    assert (got.second, got.microsecond) == (0, 0)
+    assert got == start - dt.timedelta(minutes=53)  # 52.4 rounded down
+    late = NOW.replace(second=40)
+    got = planner.deadline(late, False, 60, 15, late)
+    assert got == late.replace(second=0)
 
 
 def test_required_soc() -> None:

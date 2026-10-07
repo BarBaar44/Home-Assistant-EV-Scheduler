@@ -213,10 +213,11 @@ def deadline(
 ) -> dt.datetime:
     """When the car must be charged: the departure minus the prep buffer,
     where the departure is the start, or the start minus the drive for an
-    arrival. Clamped to now."""
+    arrival. Clamped to now. Whole minutes, rounded down: a drive time in
+    fractional minutes or the clamp would otherwise put seconds on it."""
     drive = 0 if departure else out_min
     when = start - dt.timedelta(minutes=drive + prep_min)
-    return max(when, now)
+    return max(when, now).replace(second=0, microsecond=0)
 
 
 def next_floor_ready(now: dt.datetime, ready_hour: int) -> dt.datetime:

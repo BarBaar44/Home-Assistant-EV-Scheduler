@@ -81,7 +81,7 @@ evcc.yaml                          example evcc config
 | Home Assistant | with HACS | required |
 | [Invite Calendar](https://github.com/BarBaar44/invite-calendar) | HACS integration, 1.2.2 or later | required |
 | A mailbox with IMAP and SMTP | self hosted mailcow | any provider that allows IMAP and SMTP login |
-| [EV Trip Card](https://github.com/BarBaar44/EV-Trip-Card) | HACS dashboard card, 0.2.0 or later | optional, but it is the trip form |
+| [EV Trip Card](https://github.com/BarBaar44/EV-Trip-Card) | HACS dashboard card, 0.4.0 or later | optional, but it is the trip form |
 | A weather entity | OpenWeatherMap | any `weather.*` entity |
 | Car integration | Tesla Fleet | the trip side only needs SOC; the charge limit automation needs a writable limit |
 | [evcc](https://evcc.io) | HA add-on | optional; without it you get the plan sensor and can drive any charger yourself |
@@ -120,7 +120,6 @@ Install [EV Trip Card](https://github.com/BarBaar44/EV-Trip-Card) from HACS (cus
 
 ```yaml
 type: custom:ev-trip-card
-backend: integration
 ```
 
 Set the car entity options if yours are not named like mine (see the card's README).

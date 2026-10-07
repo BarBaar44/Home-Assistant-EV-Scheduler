@@ -46,7 +46,7 @@ class _Base(CoordinatorEntity[TripPlannerCoordinator], SensorEntity):
         self.entity_id = f"sensor.{DOMAIN}_{self._key}"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, entry.entry_id)},
-            name="EV trip planner",
+            name="EV Trip Planner",
             entry_type=DeviceEntryType.SERVICE,
         )
 
