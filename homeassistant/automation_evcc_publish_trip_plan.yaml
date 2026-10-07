@@ -1,31 +1,36 @@
-# Automation: publish the next trip to evcc as a vehicle charging plan,
-# and manage the car's own charge limit (evcc reads it but will not raise it).
+# Automation: publish the EV Trip Planner plan to evcc as a vehicle charging
+# plan, and manage the car's own charge limit (evcc reads it but will not
+# raise it).
 #
 # Paste into Settings > Automations > (new) > Edit in YAML.
-# Replace <car> with your Tesla Fleet entity slug, and the fallback notify
-# service with your own phone.
+# Replace <car> with your Tesla Fleet entity slug, <evcc_vehicle> with the
+# vehicle name in evcc.yaml, and the fallback notify service with your phone.
 #
-# Needs: rest_command.yaml, input_boolean.evcc_car_limit_raised and
-# input_text.next_trip_notify_service (see README).
+# Needs: rest_command.yaml and input_boolean.evcc_car_limit_raised (see README).
+#
+# The plan comes from sensor.ev_trip_planner_plan: state is the SOC, attributes
+# kind (trip, floor, idle), deadline and notify_service. A state trigger
+# without `to` also fires on attribute changes, so a moved deadline at the
+# same SOC still publishes.
 #
 # Charge limit policy: 80% is the default. Above 80% only while a trip needs
 # it. The limit comes back down once something positively says it is no
 # longer needed (HA raised it and the trip is gone, a charge actually reached
-# it, or a booked trip needs no more than 80%). Never lowered while charging.
-# Every limit write is read back from the car before it is recorded.
+# it, or a booked trip needs no more than 80%). A floor plan is not a booked
+# trip, so a limit set by hand holds until the charge that used it is done.
+# Never lowered while charging. Every limit write is read back from the car
+# before it is recorded.
 
 alias: evcc publish trip plan
 description: >-
-  Push next trip SOC and deadline to evcc as a vehicle plan. Raise the car
-  charge limit for trips needing more than the normal limit and restore it
-  afterwards. Never lowers mid-charge.
+  Push the EV Trip Planner plan (trip or SOC floor) to evcc as a vehicle plan.
+  Raise the car charge limit for trips needing more than the normal limit and
+  restore it afterwards. Never lowers mid-charge.
 mode: restart
 triggers:
   - trigger: state
     id: trip
-    entity_id:
-      - input_number.next_trip_required_soc
-      - input_datetime.next_trip_deadline
+    entity_id: sensor.ev_trip_planner_plan
     not_from: [unavailable, unknown]
     not_to: [unavailable, unknown]
   - trigger: homeassistant
@@ -42,22 +47,25 @@ triggers:
 actions:
   - delay: "00:00:10"
   - variables:
-      vehicle: tesla
+      vehicle: <evcc_vehicle>
       car_limit_entity: number.<car>_charge_limit
       normal_limit: 80
       car_limit: "{{ states('number.<car>_charge_limit') | float(0) }}"
       car_soc: "{{ states('sensor.<car>_battery_level') | float(0) }}"
       charging_state: "{{ states('sensor.<car>_charging') }}"
       fired_by: "{{ trigger.id if trigger is defined else 'manual' }}"
-      soc_raw: "{{ states('input_number.next_trip_required_soc') | float(0) }}"
+      plan_entity: sensor.ev_trip_planner_plan
+      plan_kind: "{{ state_attr(plan_entity, 'kind') }}"
+      soc_raw: "{{ states(plan_entity) | float(0) }}"
       soc: "{{ [soc_raw | round(0, 'ceil') | int, 100] | min }}"
-      deadline_ts: "{{ state_attr('input_datetime.next_trip_deadline', 'timestamp') | float(0) }}"
+      deadline_ts: "{{ as_timestamp(state_attr(plan_entity, 'deadline'), 0) }}"
       now_ts: "{{ as_timestamp(now()) }}"
-      idle: "{{ soc_raw <= 0 or deadline_ts > now_ts + 365 * 86400 }}"
+      idle: "{{ plan_kind in [None, 'idle'] or soc_raw <= 0 }}"
+      booked_trip: "{{ not idle and plan_kind == 'trip' }}"
       plan_ts: "{{ [deadline_ts, now_ts + 900] | max }}"
       plan_time: "{{ plan_ts | timestamp_custom('%Y-%m-%dT%H:%M:%SZ', false) }}"
       raise_needed: "{{ not idle and soc > normal_limit }}"
-      notify_raw: "{{ states('input_text.next_trip_notify_service') }}"
+      notify_raw: "{{ state_attr(plan_entity, 'notify_service') or '' }}"
       notify_service: >-
         {{ notify_raw if notify_raw.startswith('notify.')
            else 'notify.mobile_app_<your_phone>' }}
@@ -137,12 +145,14 @@ actions:
           - alias: Never interrupt a charge in progress
             condition: template
             value_template: "{{ charging_state != 'charging' }}"
-          - alias: Something must positively say the high limit is not needed
+          - alias: >-
+              Something must positively say the high limit is not needed. A
+              floor plan is not a booked trip.
             condition: template
             value_template: >-
               {{ is_state('input_boolean.evcc_car_limit_raised', 'on')
                  or (fired_by == 'charge_ended' and car_soc >= car_limit - 1)
-                 or (not idle and soc <= normal_limit) }}
+                 or (booked_trip and soc <= normal_limit) }}
         sequence:
           - action: number.set_value
             target:

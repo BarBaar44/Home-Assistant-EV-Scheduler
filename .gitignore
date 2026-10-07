@@ -3,7 +3,7 @@ secrets.yaml
 config.yaml
 !config.example.yaml
 
-# Runtime state written by the pyscript apps (personal data: trips, addresses, emails)
+# Personal runtime state (trips, addresses, emails)
 *.json
 !*.example.json
 # ...but not the integration's own files
