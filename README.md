@@ -95,14 +95,22 @@ Nominatim (OpenStreetMap) and Waze need no API key. Please respect [Nominatim's 
 
 ### 1. Mailbox and Invite Calendar
 
-Create a mailbox for the car, e.g. `car@yourdomain`, then install [Invite Calendar](https://github.com/BarBaar44/invite-calendar) from HACS and add an entry for that mailbox. Name the entry so the entity is `calendar.tesla` (or pick yours in step 2). Set its **accept policy to Manual**: EV Trip Planner accepts an invite only once its location is found. Turn on the missing location reply if you like.
+Create a mailbox for the car, e.g. `car@yourdomain`, then install [Invite Calendar](https://github.com/BarBaar44/invite-calendar) from HACS and add an entry for that mailbox.
+
+[![Open in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=BarBaar44&repository=invite-calendar&category=integration)
+[![Add integration](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=invite_calendar)
+
+ Name the entry so the entity is `calendar.tesla` (or pick yours in step 2). Set its **accept policy to Manual**: EV Trip Planner accepts an invite only once its location is found. Turn on the missing location reply if you like.
 
 Outgoing invites are sent **from** the car's mailbox, which is also the ORGANIZER of trips booked on the card. That keeps SPF/DKIM/DMARC aligned, so invites to Gmail do not land in spam.
 
 ### 2. EV Trip Planner
 
-1. HACS > three dots > Custom repositories > `https://github.com/BarBaar44/Home-Assistant-EV-Scheduler`, type **Integration**. Install EV Trip Planner and restart.
-2. Settings > Devices & services > Add integration > **EV Trip Planner**: pick the trip calendar, your email as OpenStreetMap contact, usable battery capacity, the car's battery level sensor, a consumption sensor (optional, see step 3) and a fallback notify service.
+[![Open in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=BarBaar44&repository=Home-Assistant-EV-Scheduler&category=integration)
+[![Add integration](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=ev_trip_planner)
+
+1. **Open in HACS** (or HACS > three dots > Custom repositories > `https://github.com/BarBaar44/Home-Assistant-EV-Scheduler`, type **Integration**). Install EV Trip Planner and restart.
+2. **Add integration** (or Settings > Devices & services > Add integration > **EV Trip Planner**): pick the trip calendar, your email as OpenStreetMap contact, usable battery capacity, the car's battery level sensor, a consumption sensor (optional, see step 3) and a fallback notify service.
 3. On the new entry, **Add household member** for everyone who books trips: their Home Assistant user, the email that gets the trip invites, and their phone's notify service.
 4. Options: battery floor and its ready hour, safety buffer, prep time and the rest.
 
@@ -116,6 +124,8 @@ Add `homeassistant/weather_efficiency_sensor.yaml` to your config, replacing `we
 
 ### 4. Dashboard card
 
+[![Open in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=BarBaar44&repository=EV-Trip-Card&category=plugin)
+
 Install [EV Trip Card](https://github.com/BarBaar44/EV-Trip-Card) from HACS (custom repository, type Dashboard) and add:
 
 ```yaml
@@ -126,7 +136,9 @@ Set the car entity options if yours are not named like mine (see the card's READ
 
 ### 5. evcc (optional)
 
-1. Install evcc (the HA add-on is easiest) and adapt `evcc.yaml`: meters, vehicle, charger and tariffs.
+[Open the app store in your Home Assistant](https://my.home-assistant.io/redirect/supervisor_apps/)
+
+1. Install evcc (the HA add-on is easiest; add the repository `https://github.com/evcc-io/hassio-addon` in the store first) and adapt `evcc.yaml`: meters, vehicle, charger and tariffs.
 2. Add `homeassistant/templates.yaml` (charge status and signed grid currents) and `homeassistant/rest_command.yaml`, then restart HA.
 3. Create the helper `input_boolean.evcc_car_limit_raised` (Toggle).
 4. Import `homeassistant/automation_evcc_publish_trip_plan.yaml` as an automation and replace the `<car>`, `<evcc_vehicle>` and `<your_phone>` placeholders. Then Run actions once.
