@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -39,3 +40,9 @@ def test_card_file_defines_the_element() -> None:
     assert 'customElements.define("ev-trip-card"' in source
     # Loaded alongside an old HACS copy, it must not throw.
     assert 'customElements.get("ev-trip-card")' in source
+
+
+def test_card_version_is_the_integration_version() -> None:
+    manifest = json.loads((CARD_FILE.parent.parent / "manifest.json").read_text())
+    source = CARD_FILE.read_text(encoding="utf-8")
+    assert f'const VERSION = "{manifest["version"]}";' in source

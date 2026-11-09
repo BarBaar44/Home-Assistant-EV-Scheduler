@@ -19,7 +19,8 @@
  * https://github.com/BarBaar44/Home-Assistant-EV-Scheduler  (MIT)
  */
 
-const VERSION = "0.5.0";
+// The integration's version: the card ships with it (test_card checks).
+const VERSION = "0.3.0";
 
 const DEFAULTS = {
   title: "Trips and charging",
