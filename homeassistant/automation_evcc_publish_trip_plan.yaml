@@ -95,13 +95,17 @@ actions:
             continue_on_error: true
           - delay: "00:00:20"
           - variables:
-              limit_awake: "{{ states(car_limit_entity) | float(0) }}"
-          - alias: Write until the car confirms, at most three tries
+              limit_awake: "{{ states(car_limit_entity) | float(-1) }}"
+          - alias: >-
+              Write until the car confirms, at most three tries. Never while
+              the limit is unknown: a hand set limit above the plan would be
+              overwritten with a lower one.
             repeat:
               while:
                 - condition: template
                   value_template: >-
-                    {{ states(car_limit_entity) | float(0) < soc
+                    {{ has_value(car_limit_entity)
+                       and states(car_limit_entity) | float(0) < soc
                        and repeat.index <= 3 }}
               sequence:
                 - action: number.set_value
@@ -125,7 +129,7 @@ actions:
                   enough once the car woke (set by hand) stays a human's.
                 if:
                   - condition: template
-                    value_template: "{{ limit_awake < soc }}"
+                    value_template: "{{ limit_awake >= 0 and limit_awake < soc }}"
                   - condition: state
                     entity_id: input_boolean.evcc_car_limit_raised
                     state: "off"

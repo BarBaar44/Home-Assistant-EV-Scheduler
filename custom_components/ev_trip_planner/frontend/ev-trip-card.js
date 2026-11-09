@@ -88,6 +88,10 @@ class EvTripCard extends HTMLElement {
     this._awaitReset = 0; // token of the schedule call waiting for a reset
     this._arriveBy = false;
     this._carCard = null;
+    // A banner shown here because set_status itself failed:
+    // { level, message, updated } where updated is the status sensor's at
+    // that moment. It stays until the shared status changes or is dismissed.
+    this._local = null;
   }
 
   static getStubConfig() {
@@ -294,7 +298,14 @@ class EvTripCard extends HTMLElement {
       ev.preventDefault();
       this._search();
     });
-    $("dismiss").addEventListener("click", () => this._call("clear_status", {}));
+    $("dismiss").addEventListener("click", () => {
+      if (this._local) {
+        this._local = null;
+        this._renderBanner(this._hass.states[this._config.status_entity]);
+        return;
+      }
+      this._call("clear_status", {});
+    });
     $("clear").addEventListener("click", () => this._clear());
     $("schedule").addEventListener("click", () => this._schedule());
 
@@ -418,13 +429,23 @@ class EvTripCard extends HTMLElement {
     `;
   }
 
+  _statusUpdated(stateObj) {
+    return stateObj ? `${stateObj.state}|${stateObj.attributes.updated || ""}` : "";
+  }
+
   _renderBanner(stateObj) {
-    const level = stateObj ? stateObj.state : "ok";
+    if (this._local && this._local.updated !== this._statusUpdated(stateObj)) {
+      this._local = null; // the shared status moved on
+    }
+    const level = this._local ? this._local.level : stateObj ? stateObj.state : "ok";
+    const message = this._local
+      ? this._local.message
+      : (stateObj && stateObj.attributes.message) || "";
     const show = BANNER_LEVELS.includes(level);
     this._el.banner.hidden = !show;
     if (!show) return;
     this._el.banner.className = `banner ${level}`;
-    this._el.bannerText.textContent = stateObj.attributes.message || "";
+    this._el.bannerText.textContent = message;
   }
 
   _results() {
@@ -545,9 +566,9 @@ class EvTripCard extends HTMLElement {
   _localBanner(level, message) {
     const [domain, service] = BACKENDS[this._config.backend]("set_status");
     this._hass.callService(domain, service, { level, message }).catch(() => {
-      this._el.banner.hidden = false;
-      this._el.banner.className = `banner ${level}`;
-      this._el.bannerText.textContent = message;
+      const stateObj = this._hass.states[this._config.status_entity];
+      this._local = { level, message, updated: this._statusUpdated(stateObj) };
+      this._renderBanner(stateObj);
     });
   }
 

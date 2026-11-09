@@ -301,8 +301,7 @@ class TripPlannerCoordinator(DataUpdateCoordinator[PlannerData]):
 
         for index, (start, ev) in enumerate(located):
             in_cluster = start < cluster_end
-            uid = ev.get("uid") or f"nouid:{ev.get('summary', '')}"
-            key = f"{uid}|occ={int(start.timestamp())}"
+            key = _alert_key(ev, start)
             summary = ev.get("summary") or "an event"
             description = ev.get("description") or ""
             notify, _ = s.notify_for(planner.person_email(ev))
@@ -360,7 +359,7 @@ class TripPlannerCoordinator(DataUpdateCoordinator[PlannerData]):
                 first_out = route.out_min
 
         first_ev = located[0][1]
-        first_key = f"{first_ev.get('uid')}|occ={int(first_start.timestamp())}"
+        first_key = _alert_key(first_ev, first_start)
         first_notify, reason = s.notify_for(planner.person_email(first_ev))
         if reason and first_key not in self._fallback_warned:
             self._fallback_warned.add(first_key)
@@ -818,6 +817,14 @@ class TripPlannerCoordinator(DataUpdateCoordinator[PlannerData]):
             plan["deadline"] = plan["deadline"].isoformat(timespec="seconds")
         plan["version"] = CONTRACT_VERSION
         return plan
+
+
+def _alert_key(event: dict[str, Any], start: dt.datetime) -> str:
+    """One key per occurrence, for alert dedup and pruning. The same for
+    every alert about it, so a charging stop alert on the first event of a
+    cluster dedups against its other alerts."""
+    uid = event.get("uid") or f"nouid:{event.get('summary', '')}"
+    return f"{uid}|occ={int(start.timestamp())}"
 
 
 def _local(value: dt.datetime) -> dt.datetime:
