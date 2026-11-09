@@ -1,7 +1,7 @@
 {
   "domain": "ev_trip_planner",
   "name": "EV Trip Planner",
-  "after_dependencies": ["invite_calendar"],
+  "after_dependencies": ["frontend", "http", "invite_calendar"],
   "codeowners": ["@BarBaar44"],
   "config_flow": true,
   "dependencies": [],

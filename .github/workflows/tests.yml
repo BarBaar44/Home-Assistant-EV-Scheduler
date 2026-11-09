@@ -25,3 +25,5 @@ jobs:
           ruff format --check .
       - name: Pytest
         run: python -m pytest -q
+      - name: Card syntax
+        run: node --check custom_components/ev_trip_planner/frontend/ev-trip-card.js

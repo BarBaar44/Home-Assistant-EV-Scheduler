@@ -16,7 +16,7 @@ Invite your car to a meeting, or book a trip from a dashboard card, and the car 
   evcc: "22% by 13:02", charged from solar or the cheapest hours before then
 ```
 
-> **Status, October 2026.** The trip logic is the **EV Trip Planner** integration (`custom_components/ev_trip_planner`, installable from HACS), running live on my system since 7 October 2026. It replaced an earlier set of pyscript apps; those are in the git history if you want them.
+> **Status, November 2026.** The trip logic is the **EV Trip Planner** integration (`custom_components/ev_trip_planner`, installable from HACS), running live on my system since 7 October 2026. It replaced an earlier set of pyscript apps; those are in the git history if you want them.
 
 ## Why
 
@@ -28,7 +28,7 @@ Your calendar already knows. This project reads it, works out the energy each tr
 
 * **Calendar invites as trip input.** A dedicated mailbox (say `car@yourdomain`) receives normal calendar invites from any client: Outlook, Gmail, Nextcloud, Evolution. The mailbox side is handled by [Invite Calendar](https://github.com/BarBaar44/invite-calendar), a separate integration.
 * **Auto accept.** The car accepts an invite once its location can be found on the map, so it shows as attending in the organizer's calendar. No location? Invite Calendar replies asking for one.
-* **Dashboard card.** [EV Trip Card](https://github.com/BarBaar44/EV-Trip-Card) books, moves and cancels trips and shows the charging plan. Destination search shows a pick list (useful for "Lidl Amsterdam", which has a dozen branches) and pins the chosen coordinates to the trip. The person who booked it gets a real calendar invite.
+* **Dashboard card.** The EV Trip Card, shipped with the integration, books, moves and cancels trips and shows the charging plan. Destination search shows a pick list (useful for "Lidl Amsterdam", which has a dozen branches) and pins the chosen coordinates to the trip. The person who booked it gets a real calendar invite.
 * **Real energy estimate.** Waze routing for distance and drive time, a weather adjusted Wh/km figure (temperature, wind, rain), round trip or one way, and a safety buffer. Trips close together are budgeted as one.
 * **Leave at or arrive by.** An invite's start time is when you need to *arrive*, so the drive time is subtracted. On the card you choose: leave at, or arrive by. An arrive by trip you can no longer make in time is refused instead of booked.
 * **SOC floor.** Optionally keep the battery above, say, 50% while plugged in, so the car is never empty at home even with no trips planned.
@@ -65,7 +65,9 @@ The plan sensor in the middle is the whole interface to charging. Everything abo
 
 ```
 custom_components/ev_trip_planner/   the integration (config flow, sensors, services)
+  frontend/ev-trip-card.js           the dashboard card, served by the integration
 tests/                               its tests (pytest-homeassistant-custom-component)
+CONTRACT.md                          what the card reads and calls
 homeassistant/
   weather_efficiency_sensor.yaml   Wh/km template sensor plus its 7 helpers
   templates.yaml                   evcc charge status and signed grid currents
@@ -81,7 +83,6 @@ evcc.yaml                          example evcc config
 | Home Assistant | with HACS | required |
 | [Invite Calendar](https://github.com/BarBaar44/invite-calendar) | HACS integration, 1.2.2 or later | required |
 | A mailbox with IMAP and SMTP | self hosted mailcow | any provider that allows IMAP and SMTP login |
-| [EV Trip Card](https://github.com/BarBaar44/EV-Trip-Card) | HACS dashboard card, 0.4.0 or later | optional, but it is the trip form |
 | A weather entity | OpenWeatherMap | any `weather.*` entity |
 | Car integration | Tesla Fleet | the trip side only needs SOC; the charge limit automation needs a writable limit |
 | [evcc](https://evcc.io) | HA add-on | optional; without it you get the plan sensor and can drive any charger yourself |
@@ -124,15 +125,57 @@ Add `homeassistant/weather_efficiency_sensor.yaml` to your config, replacing `we
 
 ### 4. Dashboard card
 
-[![Open in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=BarBaar44&repository=EV-Trip-Card&category=plugin)
-
-Install [EV Trip Card](https://github.com/BarBaar44/EV-Trip-Card) from HACS (custom repository, type Dashboard) and add:
+The card comes with the integration: it is served from `/ev_trip_planner/ev-trip-card.js` and loaded on every page, so there is nothing to install and no Lovelace resource to add. Reload the browser once after installing or updating the integration, then add:
 
 ```yaml
 type: custom:ev-trip-card
 ```
 
-Set the car entity options if yours are not named like mine (see the card's README).
+![EV Trip Card](docs/ev-trip-card.png)
+
+* **Status:** battery level and charging state, a bar with the plan's target and the car's charge limit, and what the plan asks in words ("Charge to 85% by tomorrow 07:15, for Delft · 120 km", "Ready for Delft", or the battery floor). The car's picture sits lower right.
+* **Banner:** the planner's messages, with Dismiss.
+* **Plan a trip:** search, pick a result, choose *Leave at* or *Arrive by*, set the time, Schedule. Search works from the phone keyboard and the button alike, because the card reads its own text field.
+* **Upcoming trips:** Move or Cancel per trip, cancel confirmed inline. Hidden when there are none.
+
+The card talks to the planner only through the contract in [CONTRACT.md](CONTRACT.md). The person who taps Schedule is the one the trip is booked for. All times are shown and entered in Home Assistant's time zone, not the phone's.
+
+All options are optional:
+
+| Option | Default |
+|---|---|
+| `title` | `Trips and charging` |
+| `soc_entity` | `sensor.calimero_battery_level` |
+| `charge_limit_entity` | `number.calimero_charge_limit` |
+| `charging_entity` | `sensor.calimero_charging` |
+| `limit_raised_entity` | `input_boolean.evcc_car_limit_raised` |
+| `plan_entity` | `sensor.ev_trip_planner_plan` |
+| `trips_entity` | `sensor.ev_trip_planner_trips` |
+| `search_entity` | `sensor.ev_trip_planner_search` |
+| `status_entity` | `sensor.ev_trip_planner_status` |
+| `image` | none: a plain car outline. Any URL, e.g. `/local/car.png` from `/config/www` |
+| `car_card` | none: a whole card in the car's place, wins over `image`. See below |
+| `show_arrive_by` | `true` |
+| `show_status` | `true` |
+| `show_manage` | `true` |
+
+The car entity defaults are my car's; set yours if they are named differently.
+
+**A 3D car.** `car_card` hosts any card in the car slot. With [Tesla View](https://github.com/koenhendriks/tesla-view) (its own HACS integration plus card, and an asset pack you extract yourself with [tesla-model-extractor](https://github.com/koenhendriks/tesla-model-extractor)):
+
+```yaml
+type: custom:ev-trip-card
+car_card:
+  type: custom:tesla-view-card
+  device_id: <the car's Tesla Fleet device>
+  camera: parked
+  hotspots: false
+  aspect_ratio: "16:9"
+```
+
+Every other key goes straight to Tesla View. The slot is about 40% of the card wide, so keep the camera fixed and hotspots off.
+
+**Moving from the separate card repository.** The card used to be its own HACS Dashboard repository, `BarBaar44/ev-trip-card`. HACS allows one category per repository, so it now ships inside the integration. Remove the old Dashboard install in HACS and its Lovelace resource (`/hacsfiles/ev-trip-card/ev-trip-card.js`), then reload the browser. If both are loaded, whichever loads first wins and the browser console says so.
 
 ### 5. evcc (optional)
 
@@ -148,14 +191,18 @@ evcc needs a sponsor token for some chargers (Peblar included). Turn off auto up
 
 ### Tesla specific
 
-To change the charge limit, Home Assistant needs a **virtual key** paired with the car (Tesla Vehicle Command Protocol). Reading works without one, so an integration that shows all data can still be unable to send commands. The public key must be served at `https://<your-domain>/.well-known/appspecific/com.tesla.3p.public-key.pem` and must be the public half of the key HA signs with. Check before pairing:
+To change the charge limit, Home Assistant needs a **virtual key** paired with the car (Tesla Vehicle Command Protocol). Reading works without one, so an integration that shows all data can still be unable to send commands.
+
+The key lives in three places, and all three must agree: HA's private key (`/config/tesla_fleet.key`), the public key served at `https://<your-domain>/.well-known/appspecific/com.tesla.3p.public-key.pem`, and Tesla's partner registration, which keeps the copy it fetched when you registered. Pairing checks that last copy, so changing the file on your domain does nothing until you register again. Compare the first two in DER form (PEM text can differ cosmetically):
 
 ```bash
-openssl ec -in /config/tesla_fleet.key -pubout 2>/dev/null | sha256sum
-curl -s https://<your-domain>/.well-known/appspecific/com.tesla.3p.public-key.pem | sha256sum
+openssl ec -in /config/tesla_fleet.key -pubout -outform DER 2>/dev/null | sha256sum
+curl -sS https://<your-domain>/.well-known/appspecific/com.tesla.3p.public-key.pem | openssl ec -pubin -outform DER 2>/dev/null | sha256sum
 ```
 
-The hashes must match. Then pair from a phone near the car: `https://tesla.com/_ak/<your-domain>?vin=<VIN>`.
+The hashes must match. A hash starting `e3b0c442` means empty input (a missing file or a failed download), not a mismatch. Check the registration with `GET /api/1/partner_accounts/public_key?domain=<your-domain>` using a partner token, and register again if it differs. Then pair from a phone near the car: `https://tesla.com/_ak/<your-domain>?vin=<VIN>`.
+
+*Command signature/MAC is incorrect* after the car slept is not a key problem: HA's signing session is stale and the next command succeeds. The charge limit automation retries for that reason.
 
 ## Using it
 
