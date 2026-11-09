@@ -19,11 +19,17 @@ from .const import (
     CONF_USER_ID,
     OPT_ACCEPT_INVITES,
     OPT_ALL_DAY_HOUR,
+    OPT_CAR_CHARGING,
+    OPT_CAR_LIMIT,
+    OPT_CAR_WAKE,
     OPT_CLUSTER_HOURS,
+    OPT_EVCC_URL,
+    OPT_EVCC_VEHICLE,
     OPT_FALLBACK_WH_KM,
     OPT_FLOOR_READY_HOUR,
     OPT_FLOOR_SOC,
     OPT_LOOKAHEAD_DAYS,
+    OPT_NORMAL_LIMIT,
     OPT_PREP_BUFFER,
     OPT_SAFETY_BUFFER,
     OPT_TRIP_DURATION,
@@ -41,6 +47,7 @@ DEFAULTS = {
     OPT_FLOOR_READY_HOUR: 7,
     OPT_TRIP_DURATION: 60,
     OPT_ACCEPT_INVITES: True,
+    OPT_NORMAL_LIMIT: 80,
 }
 
 SAFE_NOTIFY = "notify.persistent_notification"
@@ -74,6 +81,17 @@ class Settings:
     trip_duration: int
     accept_invites: bool
     members: tuple[Member, ...]
+    # Charging: evcc and the car's own charge limit. None means not managed.
+    evcc_url: str | None = None
+    evcc_vehicle: str | None = None
+    car_limit_entity: str | None = None
+    car_wake_entity: str | None = None
+    car_charging_entity: str | None = None
+    normal_limit: float = 80.0
+
+    @property
+    def evcc_enabled(self) -> bool:
+        return bool(self.evcc_url and self.evcc_vehicle)
 
     def member_by_user(self, user_id: str | None) -> Member | None:
         return next((m for m in self.members if m.user_id == user_id), None)
@@ -131,4 +149,10 @@ def settings(entry: ConfigEntry) -> Settings:
         trip_duration=int(opts[OPT_TRIP_DURATION]),
         accept_invites=bool(opts[OPT_ACCEPT_INVITES]),
         members=members,
+        evcc_url=(str(opts.get(OPT_EVCC_URL) or "").strip().rstrip("/") or None),
+        evcc_vehicle=(str(opts.get(OPT_EVCC_VEHICLE) or "").strip() or None),
+        car_limit_entity=opts.get(OPT_CAR_LIMIT) or None,
+        car_wake_entity=opts.get(OPT_CAR_WAKE) or None,
+        car_charging_entity=opts.get(OPT_CAR_CHARGING) or None,
+        normal_limit=float(opts[OPT_NORMAL_LIMIT]),
     )

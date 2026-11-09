@@ -51,7 +51,31 @@
           "floor_soc": "Keep at least this much while plugged in. 0 is off.",
           "trip_cluster_hours": "Trips this close together are charged for as one."
         }
+      },
+      "charging": {
+        "title": "Charging",
+        "description": "Optional. Publishes the plan to evcc and keeps the car's own charge limit: raised above the normal limit only while a trip needs it, and back down once nothing does. Leave a field empty to not manage that part here.",
+        "data": {
+          "evcc_url": "evcc address",
+          "evcc_vehicle": "evcc vehicle name",
+          "car_limit_entity": "Car charge limit",
+          "car_wake_entity": "Wake the car",
+          "car_charging_entity": "Car charging state",
+          "normal_limit": "Normal charge limit"
+        },
+        "data_description": {
+          "evcc_url": "For example http://192.168.0.221:7070. Give evcc a fixed address.",
+          "evcc_vehicle": "The vehicle's name in evcc.yaml.",
+          "car_limit_entity": "The car's own charge limit (a number entity). evcc reads it but never raises it.",
+          "car_wake_entity": "Pressed before every limit write; the first command after the car slept can fail.",
+          "car_charging_entity": "The limit is never lowered while this reads charging, and a finished charge can bring a hand set limit back down.",
+          "normal_limit": "The limit when no trip needs more."
+        }
       }
+    },
+    "error": {
+      "url_invalid": "Start with http:// or https://.",
+      "vehicle_missing": "Enter the vehicle's name in evcc."
     }
   },
   "config_subentries": {
@@ -92,10 +116,23 @@
   },
   "entity": {
     "sensor": {
-      "trips": { "name": "Trips" },
-      "search": { "name": "Search" },
-      "status": { "name": "Status" },
-      "plan": { "name": "Plan" }
+      "trips": {
+        "name": "Trips"
+      },
+      "search": {
+        "name": "Search"
+      },
+      "status": {
+        "name": "Status"
+      },
+      "plan": {
+        "name": "Plan"
+      }
+    },
+    "binary_sensor": {
+      "limit_raised": {
+        "name": "Charge limit raised"
+      }
     }
   },
   "exceptions": {
@@ -114,69 +151,132 @@
       "name": "Search destination",
       "description": "Look up places for the trip form.",
       "fields": {
-        "query": { "name": "Query", "description": "Address, place, or business with the town." },
-        "config_entry_id": { "name": "Planner", "description": "Only needed with more than one planner." }
+        "query": {
+          "name": "Query",
+          "description": "Address, place, or business with the town."
+        },
+        "config_entry_id": {
+          "name": "Planner",
+          "description": "Only needed with more than one planner."
+        }
       }
     },
     "clear_search": {
       "name": "Clear search",
       "description": "Clear the search results and the status.",
       "fields": {
-        "config_entry_id": { "name": "Planner", "description": "Only needed with more than one planner." }
+        "config_entry_id": {
+          "name": "Planner",
+          "description": "Only needed with more than one planner."
+        }
       }
     },
     "schedule": {
       "name": "Schedule trip",
       "description": "Book a trip and invite the household member by email.",
       "fields": {
-        "start": { "name": "Start", "description": "Local time: when you leave, or with arrive by, when you must be there." },
-        "place": { "name": "Place", "description": "Short name, used in the title." },
-        "location": { "name": "Location", "description": "Full address." },
-        "geo": { "name": "Coordinates", "description": "lat,lon picked in the search. Without it the location is looked up." },
-        "user_id": { "name": "User", "description": "The Home Assistant user booking it. Defaults to the caller." },
-        "one_way": { "name": "One way", "description": "Only the outbound leg." },
-        "arrive_by": { "name": "Arrive by", "description": "The start is when you must be there." },
-        "config_entry_id": { "name": "Planner", "description": "Only needed with more than one planner." }
+        "start": {
+          "name": "Start",
+          "description": "Local time: when you leave, or with arrive by, when you must be there."
+        },
+        "place": {
+          "name": "Place",
+          "description": "Short name, used in the title."
+        },
+        "location": {
+          "name": "Location",
+          "description": "Full address."
+        },
+        "geo": {
+          "name": "Coordinates",
+          "description": "lat,lon picked in the search. Without it the location is looked up."
+        },
+        "user_id": {
+          "name": "User",
+          "description": "The Home Assistant user booking it. Defaults to the caller."
+        },
+        "one_way": {
+          "name": "One way",
+          "description": "Only the outbound leg."
+        },
+        "arrive_by": {
+          "name": "Arrive by",
+          "description": "The start is when you must be there."
+        },
+        "config_entry_id": {
+          "name": "Planner",
+          "description": "Only needed with more than one planner."
+        }
       }
     },
     "move": {
       "name": "Move trip",
       "description": "Move a trip to a new start; the duration is kept.",
       "fields": {
-        "uid": { "name": "Trip", "description": "The trip's uid." },
-        "start": { "name": "New start", "description": "Local time." },
-        "config_entry_id": { "name": "Planner", "description": "Only needed with more than one planner." }
+        "uid": {
+          "name": "Trip",
+          "description": "The trip's uid."
+        },
+        "start": {
+          "name": "New start",
+          "description": "Local time."
+        },
+        "config_entry_id": {
+          "name": "Planner",
+          "description": "Only needed with more than one planner."
+        }
       }
     },
     "cancel": {
       "name": "Cancel trip",
       "description": "Cancel a trip; the invite is withdrawn by email first.",
       "fields": {
-        "uid": { "name": "Trip", "description": "The trip's uid." },
-        "config_entry_id": { "name": "Planner", "description": "Only needed with more than one planner." }
+        "uid": {
+          "name": "Trip",
+          "description": "The trip's uid."
+        },
+        "config_entry_id": {
+          "name": "Planner",
+          "description": "Only needed with more than one planner."
+        }
       }
     },
     "set_status": {
       "name": "Set status",
       "description": "Show a message on the card's banner.",
       "fields": {
-        "level": { "name": "Level", "description": "ok, info, success, warning or error." },
-        "message": { "name": "Message", "description": "The text." },
-        "config_entry_id": { "name": "Planner", "description": "Only needed with more than one planner." }
+        "level": {
+          "name": "Level",
+          "description": "ok, info, success, warning or error."
+        },
+        "message": {
+          "name": "Message",
+          "description": "The text."
+        },
+        "config_entry_id": {
+          "name": "Planner",
+          "description": "Only needed with more than one planner."
+        }
       }
     },
     "clear_status": {
       "name": "Clear status",
       "description": "Hide the card's banner.",
       "fields": {
-        "config_entry_id": { "name": "Planner", "description": "Only needed with more than one planner." }
+        "config_entry_id": {
+          "name": "Planner",
+          "description": "Only needed with more than one planner."
+        }
       }
     },
     "refresh": {
       "name": "Refresh",
       "description": "Recalculate the trips and the plan now.",
       "fields": {
-        "config_entry_id": { "name": "Planner", "description": "Only needed with more than one planner." }
+        "config_entry_id": {
+          "name": "Planner",
+          "description": "Only needed with more than one planner."
+        }
       }
     }
   }

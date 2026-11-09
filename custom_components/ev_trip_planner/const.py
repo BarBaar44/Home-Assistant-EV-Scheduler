@@ -34,6 +34,13 @@ OPT_FLOOR_SOC: Final = "floor_soc"
 OPT_FLOOR_READY_HOUR: Final = "floor_ready_hour"
 OPT_TRIP_DURATION: Final = "trip_duration_min"
 OPT_ACCEPT_INVITES: Final = "accept_invites"
+# Options, charging step (all optional: empty means not managed here)
+OPT_EVCC_URL: Final = "evcc_url"
+OPT_EVCC_VEHICLE: Final = "evcc_vehicle"
+OPT_CAR_LIMIT: Final = "car_limit_entity"
+OPT_CAR_WAKE: Final = "car_wake_entity"
+OPT_CAR_CHARGING: Final = "car_charging_entity"
+OPT_NORMAL_LIMIT: Final = "normal_limit"
 
 # Household member subentries
 SUBENTRY_MEMBER: Final = "member"

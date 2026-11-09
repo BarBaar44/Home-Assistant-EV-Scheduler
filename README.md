@@ -51,15 +51,13 @@ Your calendar already knows. This project reads it, works out the energy each tr
                                              │ invites, alerts
                                              ▼
                               sensor.ev_trip_planner_plan
-                                   │
-                                   ▼
-                  automation "evcc publish trip plan"  ──► car charge limit
-                                   │ rest_command
-                                   ▼
+                                             │ charging (optional): evcc API,
+                                             │ car charge limit
+                                             ▼
                  evcc: solar, dynamic prices, load balancing ──► charger ──► car
 ```
 
-The plan sensor in the middle is the whole interface to charging. Everything above them answers "how much, by when". Everything below is evcc deciding how.
+The plan in the middle is the whole interface to charging. Everything above it answers "how much, by when". Everything below is evcc deciding how. The integration publishes the plan to evcc itself; without evcc, the plan sensor is there for anything else to read.
 
 ## Repository layout
 
@@ -71,8 +69,6 @@ CONTRACT.md                          what the card reads and calls
 homeassistant/
   weather_efficiency_sensor.yaml   Wh/km template sensor plus its 7 helpers
   templates.yaml                   evcc charge status and signed grid currents
-  rest_command.yaml                calls to the evcc API
-  automation_evcc_publish_trip_plan.yaml
 evcc.yaml                          example evcc config
 ```
 
@@ -84,7 +80,7 @@ evcc.yaml                          example evcc config
 | [Invite Calendar](https://github.com/BarBaar44/invite-calendar) | HACS integration, 1.2.2 or later | required |
 | A mailbox with IMAP and SMTP | self hosted mailcow | any provider that allows IMAP and SMTP login |
 | A weather entity | OpenWeatherMap | any `weather.*` entity |
-| Car integration | Tesla Fleet | the trip side only needs SOC; the charge limit automation needs a writable limit |
+| Car integration | Tesla Fleet | the trip side only needs SOC; charge limit management needs a writable limit |
 | [evcc](https://evcc.io) | HA add-on | optional; without it you get the plan sensor and can drive any charger yourself |
 | Charger | Peblar (Modbus TCP) | anything evcc supports |
 | Grid meter | DSMR P1 | anything evcc can read |
@@ -148,7 +144,7 @@ All options are optional:
 | `soc_entity` | `sensor.calimero_battery_level` |
 | `charge_limit_entity` | `number.calimero_charge_limit` |
 | `charging_entity` | `sensor.calimero_charging` |
-| `limit_raised_entity` | `input_boolean.evcc_car_limit_raised` |
+| `limit_raised_entity` | `binary_sensor.ev_trip_planner_limit_raised` |
 | `plan_entity` | `sensor.ev_trip_planner_plan` |
 | `trips_entity` | `sensor.ev_trip_planner_trips` |
 | `search_entity` | `sensor.ev_trip_planner_search` |
@@ -181,11 +177,17 @@ Every other key goes straight to Tesla View. The slot is about 40% of the card w
 
 [Open the app store in your Home Assistant](https://my.home-assistant.io/redirect/supervisor_apps/)
 
-1. Install evcc (the HA add-on is easiest; add the repository `https://github.com/evcc-io/hassio-addon` in the store first) and adapt `evcc.yaml`: meters, vehicle, charger and tariffs.
-2. Add `homeassistant/templates.yaml` (charge status and signed grid currents) and `homeassistant/rest_command.yaml`, then restart HA.
-3. Create the helper `input_boolean.evcc_car_limit_raised` (Toggle).
-4. Import `homeassistant/automation_evcc_publish_trip_plan.yaml` as an automation and replace the `<car>`, `<evcc_vehicle>` and `<your_phone>` placeholders. Then Run actions once.
-5. In evcc, set a smart cost limit on the loadpoint so it also charges in cheap grid hours, not only from solar, and set its limit to 80%.
+1. Install evcc (the HA add-on is easiest; add the repository `https://github.com/evcc-io/hassio-addon` in the store first) and adapt `evcc.yaml`: meters, vehicle, charger and tariffs. Give evcc a fixed address.
+2. Add `homeassistant/templates.yaml` (charge status and signed grid currents), then restart HA.
+3. In EV Trip Planner's options, second page **Charging**: evcc's address (e.g. `http://192.168.0.221:7070`), the vehicle's name in `evcc.yaml`, and the car's charge limit, wake button and charging state entities. Every field is optional: leave the evcc fields empty to only keep the charge limit, or the car fields empty to only publish to evcc.
+4. In evcc, set a smart cost limit on the loadpoint so it also charges in cheap grid hours, not only from solar, and set its limit to 80%.
+
+What the integration then does, when the plan changes, every hour, when the car stops charging and at start:
+
+* **Publishes the plan to evcc** as a vehicle plan (`POST /api/vehicles/<name>/plan/soc/<soc>/<time>`), or deletes it when the plan is idle. A deadline less than 15 minutes away is sent as now + 15 min. The hourly run brings back a plan lost to an evcc restart. A failure shows one persistent notification, gone again once evcc answers.
+* **Keeps the car's own charge limit**, which evcc reads but never raises. 80% (the normal limit) is the default; above it only while a trip needs it, and back down once something positively says it is not needed: the planner raised it and nothing needs it now, a charge actually reached it, or a booked trip needs no more than 80%. A floor plan or an interrupted charge does not count. Never lowered while charging, never written while the car's limit is unknown, and every write is read back from the car before it is recorded. `binary_sensor.ev_trip_planner_limit_raised` shows when the planner raised it.
+
+**Upgrading from 0.2.** This replaces the automation "evcc publish trip plan" and its `rest_command` entries. Fill in the Charging options first, then delete the automation (running both would fight over the limit), the two `evcc_*_soc_plan` entries from `configuration.yaml` and, after checking the binary sensor, the helper `input_boolean.evcc_car_limit_raised`: its state is carried over once, at the first start.
 
 evcc needs a sponsor token for some chargers (Peblar included). Turn off auto update for the evcc add-on and update deliberately: releases can rename modes.
 
@@ -202,7 +204,7 @@ curl -sS https://<your-domain>/.well-known/appspecific/com.tesla.3p.public-key.p
 
 The hashes must match. A hash starting `e3b0c442` means empty input (a missing file or a failed download), not a mismatch. Check the registration with `GET /api/1/partner_accounts/public_key?domain=<your-domain>` using a partner token, and register again if it differs. Then pair from a phone near the car: `https://tesla.com/_ak/<your-domain>?vin=<VIN>`.
 
-*Command signature/MAC is incorrect* after the car slept is not a key problem: HA's signing session is stale and the next command succeeds. The charge limit automation retries for that reason.
+*Command signature/MAC is incorrect* after the car slept is not a key problem: HA's signing session is stale and the next command succeeds. The integration wakes the car and retries a limit write for that reason.
 
 ## Using it
 
@@ -220,7 +222,7 @@ These cost real debugging time. The code comments explain each in more detail.
 * **A naive datetime is not UTC.** The card sends local wall time; treating it as UTC shifted every trip by the UTC offset.
 * **Ambiguous places are a choice, not a guess.** Unattended invites pick the match nearest home; the card shows the list.
 * **Success must mean the trip can happen.** An arrive by trip with less time left than the drive is refused, not booked in green with a plan nobody can meet.
-* **A floor plan is not a trip.** The charge limit automation lowers a hand set limit only when a booked trip says it can, so the always present floor plan cannot reset it early.
+* **A floor plan is not a trip.** Charge limit management lowers a hand set limit only when a booked trip says it can, so the always present floor plan cannot reset it early.
 * **Test doubles from observed output.** The offline tests once agreed with the code instead of with the real integration, and the trip list came up empty on the first live run.
 
 ## Limitations
