@@ -19,7 +19,7 @@
  * https://github.com/BarBaar44/Home-Assistant-EV-Scheduler  (MIT)
  */
 
-const VERSION = "0.4.1";
+const VERSION = "0.5.0";
 
 const DEFAULTS = {
   title: "Trips and charging",
@@ -28,7 +28,7 @@ const DEFAULTS = {
   soc_entity: "sensor.calimero_battery_level",
   charge_limit_entity: "number.calimero_charge_limit",
   charging_entity: "sensor.calimero_charging",
-  limit_raised_entity: "input_boolean.evcc_car_limit_raised",
+  limit_raised_entity: "binary_sensor.ev_trip_planner_limit_raised",
   // Contract v1.
   plan_entity: "sensor.ev_trip_planner_plan",
   trips_entity: "sensor.ev_trip_planner_trips",

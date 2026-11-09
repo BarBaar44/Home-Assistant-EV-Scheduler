@@ -74,6 +74,13 @@ State: `ok | info | success | warning | error` (the last four are
 nothing to show. Messages with `source: form` were written by the card
 and are only cleared by `clear_status`.
 
+### `binary_sensor.ev_trip_planner_limit_raised`
+
+`on` while the planner has raised the car's charge limit above normal for
+a trip and the car confirmed it. Always `off` when the charging side is not
+set up. Added in integration 0.3.0; the card shows it as "raised" next to
+the limit.
+
 ### `sensor.ev_trip_planner_plan`
 
 What the charging side gets: the one plan published to evcc.
@@ -91,8 +98,9 @@ notify_service: notify.mobile_app_x # who to tell about this plan
 ```
 
 `floor` is the SOC floor (50 to 80 band) published instead of a trip.
-The evcc automation reads this sensor directly. A `floor` plan is not a
-booked trip:
+Since integration 0.3.0 the integration itself publishes this plan to evcc
+and keeps the car's charge limit, when its charging options are set. A
+`floor` plan is not a booked trip:
 charge limit logic must check `kind == trip` before treating it as one.
 
 ## Services

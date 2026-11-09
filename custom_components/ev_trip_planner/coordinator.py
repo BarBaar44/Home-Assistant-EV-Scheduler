@@ -22,6 +22,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from homeassistant.util import dt as dt_util
 
 from . import planner
+from .charging import ChargeController
 from .const import (
     ALERT_KEEP_PAST_SECONDS,
     CONTRACT_VERSION,
@@ -99,7 +100,12 @@ class TripPlannerCoordinator(DataUpdateCoordinator[PlannerData]):
         self._store: Store[dict[str, Any]] = Store(
             hass, STORAGE_VERSION, f"{DOMAIN}.{entry.entry_id}"
         )
-        self._cache: dict[str, Any] = {"geocode": {}, "routes": {}, "alerted": {}}
+        self._cache: dict[str, Any] = {
+            "geocode": {},
+            "routes": {},
+            "alerted": {},
+            "charging": {},
+        }
         self.geocoder = Geocoder(hass, self.settings.contact, self._cache["geocode"])
         self.router = Router(hass, self._cache["routes"])
         self._lock = asyncio.Lock()
@@ -109,6 +115,7 @@ class TripPlannerCoordinator(DataUpdateCoordinator[PlannerData]):
         # occurrence (fallback notify) or per change (efficiency fallback).
         self._fallback_warned: set[str] = set()
         self._efficiency_fallback = False
+        self.charger = ChargeController(hass, self)
 
     # ------------------------------------------------------------ setup
 
@@ -120,6 +127,15 @@ class TripPlannerCoordinator(DataUpdateCoordinator[PlannerData]):
 
     def _save(self) -> None:
         self._store.async_delay_save(lambda: self._cache, 10)
+
+    def save(self) -> None:
+        """Save the caches and the charging state soon."""
+        self._save()
+
+    @property
+    def charging_state(self) -> dict[str, Any]:
+        """Persistent state of the charging side (limit_raised)."""
+        return self._cache["charging"]
 
     async def async_flush(self) -> None:
         """Write the caches now. On a reload the next coordinator loads

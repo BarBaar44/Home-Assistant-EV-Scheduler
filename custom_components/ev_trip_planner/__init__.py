@@ -31,7 +31,7 @@ from .const import (
 )
 from .coordinator import TripPlannerCoordinator
 
-PLATFORMS: list[Platform] = [Platform.SENSOR]
+PLATFORMS: list[Platform] = [Platform.BINARY_SENSOR, Platform.SENSOR]
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
@@ -148,6 +148,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: TripPlannerConfigEntry) 
     coordinator.async_subscribe()
     entry.runtime_data = coordinator
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    coordinator.charger.async_start()
+    entry.async_on_unload(coordinator.charger.async_stop)
     entry.async_on_unload(entry.add_update_listener(_reload))
     return True
 

@@ -51,7 +51,31 @@
           "floor_soc": "Houd minstens dit percentage aan zolang de auto aan de lader hangt. 0 is uit.",
           "trip_cluster_hours": "Ritten zo dicht bij elkaar worden als één geladen."
         }
+      },
+      "charging": {
+        "title": "Laden",
+        "description": "Optioneel. Zet het plan in evcc en beheert de eigen laadlimiet van de auto: alleen boven de normale limiet zolang een rit dat nodig heeft, en weer omlaag zodra niets het meer nodig heeft. Laat een veld leeg om dat deel hier niet te beheren.",
+        "data": {
+          "evcc_url": "evcc-adres",
+          "evcc_vehicle": "Voertuignaam in evcc",
+          "car_limit_entity": "Laadlimiet van de auto",
+          "car_wake_entity": "Auto wekken",
+          "car_charging_entity": "Laadstatus van de auto",
+          "normal_limit": "Normale laadlimiet"
+        },
+        "data_description": {
+          "evcc_url": "Bijvoorbeeld http://192.168.0.221:7070. Geef evcc een vast adres.",
+          "evcc_vehicle": "De naam van het voertuig in evcc.yaml.",
+          "car_limit_entity": "De eigen laadlimiet van de auto (een number-entiteit). evcc leest die maar verhoogt hem nooit.",
+          "car_wake_entity": "Wordt ingedrukt voor elke wijziging van de limiet; het eerste commando na slapen kan mislukken.",
+          "car_charging_entity": "De limiet gaat nooit omlaag zolang dit charging aangeeft, en een afgeronde laadbeurt kan een handmatig verhoogde limiet terugzetten.",
+          "normal_limit": "De limiet als geen rit meer nodig heeft."
+        }
       }
+    },
+    "error": {
+      "url_invalid": "Begin met http:// of https://.",
+      "vehicle_missing": "Vul de naam van het voertuig in evcc in."
     }
   },
   "config_subentries": {
@@ -92,10 +116,23 @@
   },
   "entity": {
     "sensor": {
-      "trips": { "name": "Ritten" },
-      "search": { "name": "Zoeken" },
-      "status": { "name": "Status" },
-      "plan": { "name": "Plan" }
+      "trips": {
+        "name": "Ritten"
+      },
+      "search": {
+        "name": "Zoeken"
+      },
+      "status": {
+        "name": "Status"
+      },
+      "plan": {
+        "name": "Plan"
+      }
+    },
+    "binary_sensor": {
+      "limit_raised": {
+        "name": "Laadlimiet verhoogd"
+      }
     }
   },
   "exceptions": {
@@ -114,69 +151,132 @@
       "name": "Bestemming zoeken",
       "description": "Plaatsen opzoeken voor het ritformulier.",
       "fields": {
-        "query": { "name": "Zoekopdracht", "description": "Adres, plaats of bedrijf met de plaatsnaam." },
-        "config_entry_id": { "name": "Planner", "description": "Alleen nodig bij meer dan één planner." }
+        "query": {
+          "name": "Zoekopdracht",
+          "description": "Adres, plaats of bedrijf met de plaatsnaam."
+        },
+        "config_entry_id": {
+          "name": "Planner",
+          "description": "Alleen nodig bij meer dan één planner."
+        }
       }
     },
     "clear_search": {
       "name": "Zoeken wissen",
       "description": "Zoekresultaten en status wissen.",
       "fields": {
-        "config_entry_id": { "name": "Planner", "description": "Alleen nodig bij meer dan één planner." }
+        "config_entry_id": {
+          "name": "Planner",
+          "description": "Alleen nodig bij meer dan één planner."
+        }
       }
     },
     "schedule": {
       "name": "Rit plannen",
       "description": "Een rit boeken en de huisgenoot per e-mail uitnodigen.",
       "fields": {
-        "start": { "name": "Start", "description": "Lokale tijd: wanneer je vertrekt, of met 'aankomen om' wanneer je er moet zijn." },
-        "place": { "name": "Plaats", "description": "Korte naam, voor de titel." },
-        "location": { "name": "Locatie", "description": "Volledig adres." },
-        "geo": { "name": "Coördinaten", "description": "lat,lon gekozen bij het zoeken. Zonder wordt de locatie opgezocht." },
-        "user_id": { "name": "Gebruiker", "description": "De Home Assistant-gebruiker die boekt. Standaard de aanroeper." },
-        "one_way": { "name": "Enkele reis", "description": "Alleen de heenweg." },
-        "arrive_by": { "name": "Aankomen om", "description": "De start is wanneer je er moet zijn." },
-        "config_entry_id": { "name": "Planner", "description": "Alleen nodig bij meer dan één planner." }
+        "start": {
+          "name": "Start",
+          "description": "Lokale tijd: wanneer je vertrekt, of met 'aankomen om' wanneer je er moet zijn."
+        },
+        "place": {
+          "name": "Plaats",
+          "description": "Korte naam, voor de titel."
+        },
+        "location": {
+          "name": "Locatie",
+          "description": "Volledig adres."
+        },
+        "geo": {
+          "name": "Coördinaten",
+          "description": "lat,lon gekozen bij het zoeken. Zonder wordt de locatie opgezocht."
+        },
+        "user_id": {
+          "name": "Gebruiker",
+          "description": "De Home Assistant-gebruiker die boekt. Standaard de aanroeper."
+        },
+        "one_way": {
+          "name": "Enkele reis",
+          "description": "Alleen de heenweg."
+        },
+        "arrive_by": {
+          "name": "Aankomen om",
+          "description": "De start is wanneer je er moet zijn."
+        },
+        "config_entry_id": {
+          "name": "Planner",
+          "description": "Alleen nodig bij meer dan één planner."
+        }
       }
     },
     "move": {
       "name": "Rit verplaatsen",
       "description": "Een rit naar een nieuwe start verplaatsen; de duur blijft gelijk.",
       "fields": {
-        "uid": { "name": "Rit", "description": "De uid van de rit." },
-        "start": { "name": "Nieuwe start", "description": "Lokale tijd." },
-        "config_entry_id": { "name": "Planner", "description": "Alleen nodig bij meer dan één planner." }
+        "uid": {
+          "name": "Rit",
+          "description": "De uid van de rit."
+        },
+        "start": {
+          "name": "Nieuwe start",
+          "description": "Lokale tijd."
+        },
+        "config_entry_id": {
+          "name": "Planner",
+          "description": "Alleen nodig bij meer dan één planner."
+        }
       }
     },
     "cancel": {
       "name": "Rit annuleren",
       "description": "Een rit annuleren; de uitnodiging wordt eerst per e-mail ingetrokken.",
       "fields": {
-        "uid": { "name": "Rit", "description": "De uid van de rit." },
-        "config_entry_id": { "name": "Planner", "description": "Alleen nodig bij meer dan één planner." }
+        "uid": {
+          "name": "Rit",
+          "description": "De uid van de rit."
+        },
+        "config_entry_id": {
+          "name": "Planner",
+          "description": "Alleen nodig bij meer dan één planner."
+        }
       }
     },
     "set_status": {
       "name": "Status zetten",
       "description": "Een bericht in de banner van de kaart tonen.",
       "fields": {
-        "level": { "name": "Niveau", "description": "ok, info, success, warning of error." },
-        "message": { "name": "Bericht", "description": "De tekst." },
-        "config_entry_id": { "name": "Planner", "description": "Alleen nodig bij meer dan één planner." }
+        "level": {
+          "name": "Niveau",
+          "description": "ok, info, success, warning of error."
+        },
+        "message": {
+          "name": "Bericht",
+          "description": "De tekst."
+        },
+        "config_entry_id": {
+          "name": "Planner",
+          "description": "Alleen nodig bij meer dan één planner."
+        }
       }
     },
     "clear_status": {
       "name": "Status wissen",
       "description": "De banner van de kaart verbergen.",
       "fields": {
-        "config_entry_id": { "name": "Planner", "description": "Alleen nodig bij meer dan één planner." }
+        "config_entry_id": {
+          "name": "Planner",
+          "description": "Alleen nodig bij meer dan één planner."
+        }
       }
     },
     "refresh": {
       "name": "Vernieuwen",
       "description": "De ritten en het plan nu opnieuw berekenen.",
       "fields": {
-        "config_entry_id": { "name": "Planner", "description": "Alleen nodig bij meer dan één planner." }
+        "config_entry_id": {
+          "name": "Planner",
+          "description": "Alleen nodig bij meer dan één planner."
+        }
       }
     }
   }

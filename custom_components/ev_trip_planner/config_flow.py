@@ -46,11 +46,17 @@ from .const import (
     IC_DOMAIN,
     OPT_ACCEPT_INVITES,
     OPT_ALL_DAY_HOUR,
+    OPT_CAR_CHARGING,
+    OPT_CAR_LIMIT,
+    OPT_CAR_WAKE,
     OPT_CLUSTER_HOURS,
+    OPT_EVCC_URL,
+    OPT_EVCC_VEHICLE,
     OPT_FALLBACK_WH_KM,
     OPT_FLOOR_READY_HOUR,
     OPT_FLOOR_SOC,
     OPT_LOOKAHEAD_DAYS,
+    OPT_NORMAL_LIMIT,
     OPT_PREP_BUFFER,
     OPT_SAFETY_BUFFER,
     OPT_TRIP_DURATION,
@@ -157,14 +163,28 @@ class TripPlannerConfigFlow(ConfigFlow, domain=DOMAIN):
         return {SUBENTRY_MEMBER: MemberSubentryFlow}
 
 
+_CHARGING_KEYS = (
+    OPT_EVCC_URL,
+    OPT_EVCC_VEHICLE,
+    OPT_CAR_LIMIT,
+    OPT_CAR_WAKE,
+    OPT_CAR_CHARGING,
+    OPT_NORMAL_LIMIT,
+)
+
+
 class TripPlannerOptionsFlow(OptionsFlow):
-    """The planning knobs."""
+    """The planning knobs, then the charging side (evcc and the car)."""
+
+    def __init__(self) -> None:
+        self._planning: dict[str, Any] = {}
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         if user_input is not None:
-            return self.async_create_entry(data=user_input)
+            self._planning = user_input
+            return await self.async_step_charging()
         current = {**DEFAULTS, **self.config_entry.options}
         schema = vol.Schema(
             {
@@ -183,6 +203,54 @@ class TripPlannerOptionsFlow(OptionsFlow):
         return self.async_show_form(
             step_id="init",
             data_schema=self.add_suggested_values_to_schema(schema, current),
+        )
+
+    async def async_step_charging(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Optional. Empty fields mean that part is not managed here."""
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            url = str(user_input.get(OPT_EVCC_URL) or "").strip()
+            vehicle = str(user_input.get(OPT_EVCC_VEHICLE) or "").strip()
+            if url and not url.startswith(("http://", "https://")):
+                errors[OPT_EVCC_URL] = "url_invalid"
+            elif url and not vehicle:
+                errors[OPT_EVCC_VEHICLE] = "vehicle_missing"
+            if not errors:
+                kept = {
+                    k: v
+                    for k, v in self.config_entry.options.items()
+                    if k not in _CHARGING_KEYS
+                }
+                return self.async_create_entry(
+                    data={**kept, **self._planning, **user_input}
+                )
+        current = {**DEFAULTS, **self.config_entry.options}
+        schema = vol.Schema(
+            {
+                vol.Optional(OPT_EVCC_URL): TextSelector(
+                    TextSelectorConfig(type=TextSelectorType.URL)
+                ),
+                vol.Optional(OPT_EVCC_VEHICLE): TextSelector(),
+                vol.Optional(OPT_CAR_LIMIT): EntitySelector(
+                    EntitySelectorConfig(domain="number")
+                ),
+                vol.Optional(OPT_CAR_WAKE): EntitySelector(
+                    EntitySelectorConfig(domain="button")
+                ),
+                vol.Optional(OPT_CAR_CHARGING): EntitySelector(
+                    EntitySelectorConfig(domain="sensor")
+                ),
+                vol.Required(OPT_NORMAL_LIMIT): _number(50, 100, 1, "%"),
+            }
+        )
+        return self.async_show_form(
+            step_id="charging",
+            data_schema=self.add_suggested_values_to_schema(
+                schema, user_input or current
+            ),
+            errors=errors,
         )
 
 
