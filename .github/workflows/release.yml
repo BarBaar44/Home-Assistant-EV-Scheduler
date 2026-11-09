@@ -1,0 +1,55 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, reopened, synchronize, edited]
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  # Labels each pull request for the release notes (feature, bug, ...).
+  label:
+    name: Label pull request
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - uses: release-drafter/release-drafter/autolabeler@v7
+
+  # Updates the draft release after every merge to main, named after the
+  # version in manifest.json. Never publishes it.
+  draft:
+    name: Update draft release
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v5
+      - id: version
+        run: echo "version=$(jq -r .version custom_components/ev_trip_planner/manifest.json)" >> "$GITHUB_OUTPUT"
+      - uses: release-drafter/release-drafter@v7
+        with:
+          version: ${{ steps.version.outputs.version }}
+
+  # HACS installs by tag: a tag that is not the manifest's version would
+  # install code that reports another version.
+  tag-matches-manifest:
+    name: Tag matches manifest
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: |
+          want="v$(jq -r .version custom_components/ev_trip_planner/manifest.json)"
+          if [ "$GITHUB_REF_NAME" != "$want" ]; then
+            echo "::error::Release tag $GITHUB_REF_NAME does not match manifest.json ($want)"
+            exit 1
+          fi

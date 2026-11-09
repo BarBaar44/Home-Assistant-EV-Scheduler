@@ -1,0 +1,47 @@
+# Release Drafter: keeps a draft release up to date as pull requests merge.
+# The draft is never published by itself; publishing it is the release.
+#
+# The version comes from manifest.json (the workflow passes it in), so the
+# draft is always named after the version the code says it is.
+
+name-template: "v$RESOLVED_VERSION"
+tag-template: "v$RESOLVED_VERSION"
+
+categories:
+  - title: "Features"
+    labels: [feature]
+  - title: "Fixes"
+    labels: [bug]
+  - title: "Documentation"
+    labels: [documentation]
+  - title: "Maintenance"
+    labels: [maintenance]
+
+exclude-labels: [skip-changelog]
+change-template: "* $TITLE (#$NUMBER)"
+change-title-escapes: '\<*_&'
+no-changes-template: "* No changes"
+
+template: |
+  $CHANGES
+
+  **Full changelog:** https://github.com/$OWNER/$REPOSITORY/compare/$PREVIOUS_TAG...v$RESOLVED_VERSION
+
+# Labels pull requests from their branch name and title, so nobody has to.
+# First match wins; anything else is a feature. Add skip-changelog by hand
+# to leave a pull request out.
+autolabeler:
+  - labels: [bug]
+    branch: ['/^(fix|bugfix|hotfix)[/-]/i']
+    title: ['/\b(fix|fixes|fixed|bug)\b/i']
+    stop-on-match: true
+  - labels: [documentation]
+    branch: ['/^docs?[/-]/i']
+    title: ['/^docs?\b/i']
+    stop-on-match: true
+  - labels: [maintenance]
+    branch: ['/^(ci|chore|deps)[/-]/i']
+    title: ['/^(ci|chore|deps)\b/i', '/\bci\b/i']
+    stop-on-match: true
+  - labels: [feature]
+    fallback: true
