@@ -17,7 +17,6 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from .const import (
     GEOCODE_CACHE_DAYS,
     GEOCODE_FAILED_TTL,
-    LOGGER,
     MAX_SEARCH_RESULTS,
     NOMINATIM_URL,
 )
@@ -32,13 +31,12 @@ class LookupFailed(Exception):
 
 class Geocoder:
     """Nominatim client with a persistent cache (a dict owned by the
-    caller's storage; `dirty` says it needs saving)."""
+    caller's storage, which saves it after every run)."""
 
     def __init__(self, hass: HomeAssistant, contact: str, cache: dict[str, Any]):
         self._hass = hass
-        self._ua = f"ha-ev-trip-planner/0.1 (contact: {contact})"
+        self._ua = f"ha-ev-trip-planner (contact: {contact})"
         self.cache = cache
-        self.dirty = False
         # Nominatim allows one request at a time.
         self._lock = asyncio.Lock()
 
@@ -69,17 +67,18 @@ class Geocoder:
         ]
         for k in stale:
             del self.cache[k]
-        self.dirty = self.dirty or bool(stale)
 
     def forget(self, text: str) -> None:
         """Drop a cached answer (a failed submit, so a fix retries at once)."""
-        if self.cache.pop(text.strip().lower(), None) is not None:
-            self.dirty = True
+        self.cache.pop(text.strip().lower(), None)
 
     async def geocode(self, text: str, home: Coords | None) -> Coords | None:
         """One answer, cached; the candidate nearest home (an ambiguous
-        company name can otherwise land on another continent). A failure
-        is cached for an hour, so a bad address isn't retried every run."""
+        company name can otherwise land on another continent). No such
+        place is cached for an hour, so a bad address isn't retried every
+        run. Raises LookupFailed when Nominatim did not answer: that says
+        nothing about the address, so it is neither cached nor reported
+        as one."""
         key = text.strip().lower()
         entry = self.cache.get(key)
         now = time.time()
@@ -91,11 +90,7 @@ class Geocoder:
             and now - entry.get("ts", 0) < GEOCODE_FAILED_TTL
         ):
             return None
-        try:
-            results = await self._get({"q": text, "limit": 5})
-        except LookupFailed as err:
-            LOGGER.warning("Nominatim geocode failed for %r: %s", text, err)
-            results = []
+        results = await self._get({"q": text, "limit": 5})
         points = []
         for r in results:
             try:
@@ -104,11 +99,9 @@ class Geocoder:
                 continue
         if not points:
             self.cache[key] = {"failed": True, "ts": now}
-            self.dirty = True
             return None
         best = min(points, key=lambda p: straight_km(home, p)) if home else points[0]
         self.cache[key] = {"lat": best[0], "lon": best[1], "ts": now}
-        self.dirty = True
         return best
 
     async def search(

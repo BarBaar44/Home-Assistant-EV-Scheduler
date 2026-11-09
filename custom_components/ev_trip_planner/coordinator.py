@@ -105,6 +105,10 @@ class TripPlannerCoordinator(DataUpdateCoordinator[PlannerData]):
         self._lock = asyncio.Lock()
         # uid -> info about upcoming own trips, for banners and moves.
         self._trip_info: dict[str, dict[str, Any]] = {}
+        # Warnings that would otherwise repeat every run: logged once per
+        # occurrence (fallback notify) or per change (efficiency fallback).
+        self._fallback_warned: set[str] = set()
+        self._efficiency_fallback = False
 
     # ------------------------------------------------------------ setup
 
@@ -116,6 +120,12 @@ class TripPlannerCoordinator(DataUpdateCoordinator[PlannerData]):
 
     def _save(self) -> None:
         self._store.async_delay_save(lambda: self._cache, 10)
+
+    async def async_flush(self) -> None:
+        """Write the caches now. On a reload the next coordinator loads
+        them straight away; a delayed save still pending would be lost to
+        it, and with it the alert dedup."""
+        await self._store.async_save(self._cache)
 
     @callback
     def async_subscribe(self) -> None:
@@ -260,10 +270,12 @@ class TripPlannerCoordinator(DataUpdateCoordinator[PlannerData]):
             if not ev.get("location") or planner.is_cancelled(ev):
                 continue
             start = self._start(ev)
-            if start is None or start > horizon:
+            # list_events also returns events under way (started, not yet
+            # ended). Their charge is no longer needed: the car has left,
+            # and an all day event would otherwise ask for a charge "now"
+            # until midnight, long after the car is back.
+            if start is None or start <= now or start > horizon:
                 continue
-            # Occurrences already under way (started, not ended) still
-            # count until their deadline passes, as with list_events.
             located.append((start, ev))
         located.sort(key=lambda r: r[0])
 
@@ -285,18 +297,28 @@ class TripPlannerCoordinator(DataUpdateCoordinator[PlannerData]):
         first_out = 0.0
         accepted_now: set[str] = set()
         clean_keys = []
+        lookup_down = False
 
         for index, (start, ev) in enumerate(located):
             in_cluster = start < cluster_end
-            uid = ev.get("uid") or f"nouid:{ev.get('summary', '')}"
-            key = f"{uid}|occ={int(start.timestamp())}"
+            key = _alert_key(ev, start)
             summary = ev.get("summary") or "an event"
             description = ev.get("description") or ""
             notify, _ = s.notify_for(planner.person_email(ev))
 
             dest = planner.pinned_coords(description)
-            if dest is None:
-                dest = await self.geocoder.geocode(ev["location"], home)
+            if dest is None and not lookup_down:
+                try:
+                    dest = await self.geocoder.geocode(ev["location"], home)
+                except LookupFailed as err:
+                    # Says nothing about the address: no alert, try again
+                    # next run. One request per run while it is down.
+                    LOGGER.warning("Nominatim did not answer: %s", err)
+                    lookup_down = True
+            if dest is None and lookup_down:
+                if index == 0:
+                    return None
+                continue
             if dest is None:
                 LOGGER.warning("Could not geocode %r for %r", ev["location"], summary)
                 await self._alert(
@@ -337,12 +359,13 @@ class TripPlannerCoordinator(DataUpdateCoordinator[PlannerData]):
                 first_out = route.out_min
 
         first_ev = located[0][1]
-        first_key = f"{first_ev.get('uid')}|occ={int(first_start.timestamp())}"
+        first_key = _alert_key(first_ev, first_start)
         first_notify, reason = s.notify_for(planner.person_email(first_ev))
-        if reason:
+        if reason and first_key not in self._fallback_warned:
+            self._fallback_warned.add(first_key)
             LOGGER.warning("Alerts for this trip go to %s: %s", first_notify, reason)
 
-        wh_km = self._float_state(s.efficiency_sensor) or s.fallback_wh_km
+        wh_km = self._efficiency()
         kwh, raw_soc = planner.required_soc(
             total_km, wh_km, s.battery_kwh, s.safety_buffer
         )
@@ -408,6 +431,24 @@ class TripPlannerCoordinator(DataUpdateCoordinator[PlannerData]):
             notify_service=first_notify,
         )
 
+    def _efficiency(self) -> float:
+        """Wh/km from the consumption sensor, else the fallback. The switch
+        to the fallback and back is logged once, not every run."""
+        s = self.settings
+        value = self._float_state(s.efficiency_sensor)
+        fallback = value is None or value <= 0
+        if s.efficiency_sensor and fallback != self._efficiency_fallback:
+            if fallback:
+                LOGGER.warning(
+                    "%s has no usable value, costing trips at %.0f Wh/km",
+                    s.efficiency_sensor,
+                    s.fallback_wh_km,
+                )
+            else:
+                LOGGER.info("%s is back: %.0f Wh/km", s.efficiency_sensor, value)
+        self._efficiency_fallback = fallback
+        return s.fallback_wh_km if fallback else value
+
     async def _accept_if_due(self, ev: dict[str, Any], done: set[str]) -> None:
         """RSVP ACCEPTED for an inbound invite whose location was found:
         managed, not own, not yet accepted at this SEQUENCE. Once per uid
@@ -436,6 +477,8 @@ class TripPlannerCoordinator(DataUpdateCoordinator[PlannerData]):
     # ------------------------------------------------------------ alerts
 
     def _prune_alerts(self, now_ts: float) -> None:
+        if len(self._fallback_warned) > 100:
+            self._fallback_warned.clear()
         alerted = self._cache["alerted"]
         stale = []
         for key in alerted:
@@ -630,7 +673,15 @@ class TripPlannerCoordinator(DataUpdateCoordinator[PlannerData]):
         if dest is None:
             if geo:
                 LOGGER.warning("Ignoring unusable geo %r, looking up %r", geo, location)
-            dest = await self.geocoder.geocode(location, self._home())
+            try:
+                dest = await self.geocoder.geocode(location, self._home())
+            except LookupFailed as err:
+                LOGGER.warning("Nominatim did not answer for %r: %s", location, err)
+                self._reject(
+                    "The address lookup service didn't answer, so the trip "
+                    "wasn't scheduled. Try again in a moment."
+                )
+                return
             if dest is None:
                 self.geocoder.forget(location)
                 self._save()
@@ -766,6 +817,14 @@ class TripPlannerCoordinator(DataUpdateCoordinator[PlannerData]):
             plan["deadline"] = plan["deadline"].isoformat(timespec="seconds")
         plan["version"] = CONTRACT_VERSION
         return plan
+
+
+def _alert_key(event: dict[str, Any], start: dt.datetime) -> str:
+    """One key per occurrence, for alert dedup and pruning. The same for
+    every alert about it, so a charging stop alert on the first event of a
+    cluster dedups against its other alerts."""
+    uid = event.get("uid") or f"nouid:{event.get('summary', '')}"
+    return f"{uid}|occ={int(start.timestamp())}"
 
 
 def _local(value: dt.datetime) -> dt.datetime:

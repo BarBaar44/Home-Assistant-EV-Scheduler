@@ -506,3 +506,75 @@ async def test_first_refresh_failure_retries(hass: HomeAssistant, ic, world) -> 
     e.add_to_hass(hass)
     await hass.config_entries.async_setup(e.entry_id)
     assert e.state is ConfigEntryState.SETUP_RETRY
+
+
+async def test_started_event_is_not_planned(hass, ic, world, entry) -> None:
+    """An event already under way needs no charge any more: the car has
+    left. An all day event, or one back home before its end, must not keep
+    a "charge now" plan alive until it ends."""
+    ic.add(
+        uid="in-now",
+        summary="Under way",
+        location="Delft",
+        organizer="bart@example.com",
+        start=at(minutes=-120),
+        end=at(minutes=120),
+    )
+    await call(hass, "refresh")
+    plan = state(hass, "plan")
+    assert plan.attributes["kind"] == "idle"
+    assert float(plan.state) == 0
+
+
+async def test_nominatim_down_is_not_a_bad_address(hass, ic, world, entry) -> None:
+    """A lookup service that does not answer is not "location not found":
+    no alert telling the organizer to check the address, and no cached
+    failure, so the next run tries again."""
+    world.nominatim_down = True
+    ic.add(
+        uid="in-1",
+        summary="Meeting",
+        location="Delft",
+        organizer="bart@example.com",
+        start=at(days=1, hour=14),
+        end=at(days=1, hour=15),
+    )
+    await call(hass, "refresh")
+    assert not [d for _, d in world.notified if "not found" in d["title"]]
+    world.nominatim_down = False
+    await call(hass, "refresh")
+    plan = state(hass, "plan")
+    assert plan.attributes["kind"] == "trip"
+    assert plan.attributes["uid"] == "in-1"
+
+
+async def test_schedule_while_nominatim_down(hass, ic, world, entry) -> None:
+    world.nominatim_down = True
+    await call(
+        hass,
+        "schedule",
+        user="u_bart",
+        start=wall(at(days=1, hour=9)),
+        place="Delft",
+        location="Delft",
+    )
+    assert not created(ic)
+    status = state(hass, "status")
+    assert status.state == "error"
+    assert "didn't answer" in status.attributes["message"]
+
+
+async def test_return_leg_after_the_drive(hass, ic, world, entry) -> None:
+    """The way back leaves an hour after arriving, not an hour after
+    leaving home."""
+    await call(
+        hass,
+        "schedule",
+        user="u_bart",
+        start=wall(at(days=1, hour=9)),
+        place="Delft",
+        location="Delft",
+        geo="52.01,4.36",
+    )
+    _, _, out_at, back_at = world.waze_calls[-1]
+    assert back_at - out_at > 60 + 30

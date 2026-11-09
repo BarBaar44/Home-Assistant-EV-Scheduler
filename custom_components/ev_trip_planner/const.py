@@ -8,7 +8,7 @@ from typing import Final
 DOMAIN: Final = "ev_trip_planner"
 LOGGER = logging.getLogger(__package__)
 
-# EV trip planner contract (CONTRACT.md in BarBaar44/EV-Trip-Card).
+# EV trip planner contract (CONTRACT.md in this repository).
 CONTRACT_VERSION: Final = 1
 
 # Invite Calendar, the integration this one plans on top of.
@@ -92,7 +92,7 @@ ALERT_KEEP_PAST_SECONDS: Final = 86400
 # Update interval of the plan, minutes (time passing changes deadlines).
 UPDATE_MINUTES: Final = 5
 
-# Description markers on trip events (shared with the pyscript apps)
+# Description markers on trip events
 MARK_ONE_WAY: Final = "TRIP_TYPE=ONE_WAY"
 MARK_ROUND_TRIP: Final = "TRIP_TYPE=ROUND_TRIP"
 MARK_DEPARTURE: Final = "TIME_IS=DEPARTURE"

@@ -13,6 +13,7 @@ from homeassistant.exceptions import ConfigEntryNotReady, ServiceValidationError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.typing import ConfigType
 
+from .card import async_register_card
 from .const import (
     ATTR_CONFIG_ENTRY_ID,
     CONF_CALENDAR,
@@ -58,7 +59,8 @@ def _coordinator(hass: HomeAssistant, call: ServiceCall) -> TripPlannerCoordinat
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
-    """Register the contract v1 services."""
+    """Serve the card and register the contract v1 services."""
+    await async_register_card(hass)
 
     async def search(call: ServiceCall) -> None:
         await _coordinator(hass, call).async_search(call.data["query"])
@@ -158,4 +160,6 @@ async def _reload(hass: HomeAssistant, entry: ConfigEntry) -> None:
 async def async_unload_entry(
     hass: HomeAssistant, entry: TripPlannerConfigEntry
 ) -> bool:
-    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    if unloaded := await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
+        await entry.runtime_data.async_flush()
+    return unloaded

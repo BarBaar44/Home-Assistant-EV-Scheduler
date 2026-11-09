@@ -22,12 +22,14 @@
 # before it is recorded.
 #
 # Limit writes: the car is woken first and a write is tried up to three
-# times. When evcc contacts the car (it does after every plan change, and
-# polls it while connected), the car drops Home Assistant's signed command
-# session; the next command then fails with "Vehicle did not recognize the
-# key" and the one after that works. Seen 8 Oct 2026. The limit is also
-# written before the plan goes to evcc, so this run's own publish does not
-# get in between.
+# times. After the car has slept, the first command can fail with "Command
+# signature/MAC is incorrect": Home Assistant's signed command session is
+# stale, the car sends fresh session info back, and the next attempt works
+# (seen 10 Oct 2026). The limit is written before the plan goes to evcc.
+#
+# Nothing happens while the plan sensor is unavailable (HA starting, the
+# integration reloading): an unknown plan is not an idle one, and treating
+# it as idle would clear the evcc plan and lower a raised limit.
 
 alias: evcc publish trip plan
 description: >-
@@ -78,6 +80,9 @@ actions:
       notify_service: >-
         {{ notify_raw if notify_raw.startswith('notify.')
            else 'notify.mobile_app_<your_phone>' }}
+  - alias: Only act on a known plan
+    condition: template
+    value_template: "{{ has_value(plan_entity) }}"
   - alias: Car charge limit
     choose:
       - alias: Raise for an upcoming trip
@@ -90,13 +95,17 @@ actions:
             continue_on_error: true
           - delay: "00:00:20"
           - variables:
-              limit_awake: "{{ states(car_limit_entity) | float(0) }}"
-          - alias: Write until the car confirms, at most three tries
+              limit_awake: "{{ states(car_limit_entity) | float(-1) }}"
+          - alias: >-
+              Write until the car confirms, at most three tries. Never while
+              the limit is unknown: a hand set limit above the plan would be
+              overwritten with a lower one.
             repeat:
               while:
                 - condition: template
                   value_template: >-
-                    {{ states(car_limit_entity) | float(0) < soc
+                    {{ has_value(car_limit_entity)
+                       and states(car_limit_entity) | float(0) < soc
                        and repeat.index <= 3 }}
               sequence:
                 - action: number.set_value
@@ -120,7 +129,7 @@ actions:
                   enough once the car woke (set by hand) stays a human's.
                 if:
                   - condition: template
-                    value_template: "{{ limit_awake < soc }}"
+                    value_template: "{{ limit_awake >= 0 and limit_awake < soc }}"
                   - condition: state
                     entity_id: input_boolean.evcc_car_limit_raised
                     state: "off"
