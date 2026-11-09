@@ -16,7 +16,7 @@ Invite your car to a meeting, or book a trip from a dashboard card, and the car 
   evcc: "22% by 13:02", charged from solar or the cheapest hours before then
 ```
 
-> **Status, November 2026.** The trip logic is the **EV Trip Planner** integration (`custom_components/ev_trip_planner`, installable from HACS), running live on my system since 7 October 2026. It replaced an earlier set of pyscript apps; those are in the git history if you want them.
+> **Status, November 2026.** The trip logic is the **EV Trip Planner** integration (`custom_components/ev_trip_planner`, installable from the Home Assistant Marketplace, or HACS before 2026.11), with the dashboard card built in, running live on my system since 7 October 2026. It replaced an earlier set of pyscript apps; those are in the git history if you want them.
 
 ## Why
 
@@ -76,12 +76,12 @@ evcc.yaml                          example evcc config
 
 | Part | Used here | Swappable? |
 |---|---|---|
-| Home Assistant | with HACS | required |
-| [Invite Calendar](https://github.com/BarBaar44/invite-calendar) | HACS integration, 1.2.2 or later | required |
+| Home Assistant | 2026.11 or later with the built in Marketplace, or 2026.9 to 2026.10 with HACS | required |
+| [Invite Calendar](https://github.com/BarBaar44/invite-calendar) | Marketplace (or HACS) integration, 1.2.2 or later | required |
 | A mailbox with IMAP and SMTP | self hosted mailcow | any provider that allows IMAP and SMTP login |
 | A weather entity | OpenWeatherMap | any `weather.*` entity |
 | Car integration | Tesla Fleet | the trip side only needs SOC; charge limit management needs a writable limit |
-| [evcc](https://evcc.io) | HA add-on | optional; without it you get the plan sensor and can drive any charger yourself |
+| [evcc](https://evcc.io) | Home Assistant app | optional; without it you get the plan sensor and can drive any charger yourself |
 | Charger | Peblar (Modbus TCP) | anything evcc supports |
 | Grid meter | DSMR P1 | anything evcc can read |
 | Dynamic tariff | Frank Energie via evcc template | optional |
@@ -92,9 +92,9 @@ Nominatim (OpenStreetMap) and Waze need no API key. Please respect [Nominatim's 
 
 ### 1. Mailbox and Invite Calendar
 
-Create a mailbox for the car, e.g. `car@yourdomain`, then install [Invite Calendar](https://github.com/BarBaar44/invite-calendar) from HACS and add an entry for that mailbox.
+Create a mailbox for the car, e.g. `car@yourdomain`, then install [Invite Calendar](https://github.com/BarBaar44/invite-calendar) from the Marketplace (or HACS) and add an entry for that mailbox.
 
-[![Open in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=BarBaar44&repository=invite-calendar&category=integration)
+[![Open your Home Assistant instance and open a repository inside the Marketplace.](https://my.home-assistant.io/badges/marketplace_repository.svg)](https://my.home-assistant.io/redirect/marketplace_repository/?owner=BarBaar44&repository=invite-calendar&category=integration)
 [![Add integration](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=invite_calendar)
 
  Name the entry so the entity is `calendar.tesla` (or pick yours in step 2). Set its **accept policy to Manual**: EV Trip Planner accepts an invite only once its location is found. Turn on the missing location reply if you like.
@@ -103,10 +103,14 @@ Outgoing invites are sent **from** the car's mailbox, which is also the ORGANIZE
 
 ### 2. EV Trip Planner
 
-[![Open in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=BarBaar44&repository=Home-Assistant-EV-Scheduler&category=integration)
+[![Open your Home Assistant instance and open a repository inside the Marketplace.](https://my.home-assistant.io/badges/marketplace_repository.svg)](https://my.home-assistant.io/redirect/marketplace_repository/?owner=BarBaar44&repository=Home-Assistant-EV-Scheduler&category=integration)
 [![Add integration](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=ev_trip_planner)
 
-1. **Open in HACS** (or HACS > three dots > Custom repositories > `https://github.com/BarBaar44/Home-Assistant-EV-Scheduler`, type **Integration**). Install EV Trip Planner and restart.
+1. Install EV Trip Planner and restart:
+   * **Home Assistant 2026.11 or later:** the badge above, or Settings > Marketplace > **Add from link** with `https://github.com/BarBaar44/Home-Assistant-EV-Scheduler`. It is not in the default catalog yet, so the Marketplace asks to connect GitHub once (read only, public data).
+   * **Before 2026.11:** HACS > three dots > Custom repositories > the same address, type **Integration**. Upgrading Home Assistant to 2026.11 later moves it into the Marketplace by itself, with its update entity.
+
+   This installs the dashboard card too (step 4).
 2. **Add integration** (or Settings > Devices & services > Add integration > **EV Trip Planner**): pick the trip calendar, your email as OpenStreetMap contact, usable battery capacity, the car's battery level sensor, a consumption sensor (optional, see step 3) and a fallback notify service.
 3. On the new entry, **Add household member** for everyone who books trips: their Home Assistant user, the email that gets the trip invites, and their phone's notify service.
 4. Options: battery floor and its ready hour, safety buffer, prep time and the rest.
@@ -157,7 +161,7 @@ All options are optional:
 
 The car entity defaults are my car's; set yours if they are named differently.
 
-**A 3D car.** `car_card` hosts any card in the car slot. With [Tesla View](https://github.com/koenhendriks/tesla-view) (its own HACS integration plus card, and an asset pack you extract yourself with [tesla-model-extractor](https://github.com/koenhendriks/tesla-model-extractor)):
+**A 3D car.** `car_card` hosts any card in the car slot. With [Tesla View](https://github.com/koenhendriks/tesla-view) (its own Marketplace integration plus card, and an asset pack you extract yourself with [tesla-model-extractor](https://github.com/koenhendriks/tesla-model-extractor)):
 
 ```yaml
 type: custom:ev-trip-card
@@ -171,13 +175,15 @@ car_card:
 
 Every other key goes straight to Tesla View. The slot is about 40% of the card wide, so keep the camera fixed and hotspots off.
 
-**Moving from the separate card repository.** The card used to be its own HACS Dashboard repository, `BarBaar44/ev-trip-card`. HACS allows one category per repository, so it now ships inside the integration. Remove the old Dashboard install in HACS and its Lovelace resource (`/hacsfiles/ev-trip-card/ev-trip-card.js`), then reload the browser. If both are loaded, whichever loads first wins and the browser console says so.
+The card has the integration's version: updating the integration updates the card, and the browser console shows `EV-TRIP-CARD <version>` after a reload.
+
+**Moving from the separate card repository.** Up to integration 0.2.0 the card was its own dashboard repository, `BarBaar44/ev-trip-card`, now retired. A Marketplace (or HACS) repository holds one item of one type, and a card that only works with this integration belongs with it, so since 0.3.0 the integration ships and serves the card. Remove the old dashboard install (Settings > Marketplace > Installed, or HACS) and its Lovelace resource `/hacsfiles/ev-trip-card/ev-trip-card.js`, then reload the browser. If both are loaded, whichever loads first wins and the browser console says so.
 
 ### 5. evcc (optional)
 
 [Open the app store in your Home Assistant](https://my.home-assistant.io/redirect/supervisor_apps/)
 
-1. Install evcc (the HA add-on is easiest; add the repository `https://github.com/evcc-io/hassio-addon` in the store first) and adapt `evcc.yaml`: meters, vehicle, charger and tariffs. Give evcc a fixed address.
+1. Install evcc (the Home Assistant app is easiest; add the repository `https://github.com/evcc-io/hassio-addon` in the app store first; the Marketplace does not install apps) and adapt `evcc.yaml`: meters, vehicle, charger and tariffs. Give evcc a fixed address.
 2. Add `homeassistant/templates.yaml` (charge status and signed grid currents), then restart HA.
 3. In EV Trip Planner's options, second page **Charging**: evcc's address (e.g. `http://192.168.0.221:7070`), the vehicle's name in `evcc.yaml`, and the car's charge limit, wake button and charging state entities. Every field is optional: leave the evcc fields empty to only keep the charge limit, or the car fields empty to only publish to evcc.
 4. In evcc, set a smart cost limit on the loadpoint so it also charges in cheap grid hours, not only from solar, and set its limit to 80%.
@@ -189,7 +195,7 @@ What the integration then does, when the plan changes, every hour, when the car 
 
 **Upgrading from 0.2.** This replaces the automation "evcc publish trip plan" and its `rest_command` entries. Fill in the Charging options first, then delete the automation (running both would fight over the limit), the two `evcc_*_soc_plan` entries from `configuration.yaml` and, after checking the binary sensor, the helper `input_boolean.evcc_car_limit_raised`: its state is carried over once, at the first start.
 
-evcc needs a sponsor token for some chargers (Peblar included). Turn off auto update for the evcc add-on and update deliberately: releases can rename modes.
+evcc needs a sponsor token for some chargers (Peblar included). Turn off auto update for the evcc app and update deliberately: releases can rename modes.
 
 ### Tesla specific
 
