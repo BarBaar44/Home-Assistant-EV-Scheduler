@@ -96,7 +96,6 @@ class Router:
     def __init__(self, hass: HomeAssistant, cache: dict[str, Any]):
         self._hass = hass
         self.cache = cache
-        self.dirty = False
 
     def prune(self, now: float | None = None) -> None:
         now = time.time() if now is None else now
@@ -108,7 +107,6 @@ class Router:
         ]
         for k in stale:
             del self.cache[k]
-        self.dirty = self.dirty or bool(stale)
 
     async def drive_now(self, home: Coords, dest: Coords) -> float | None:
         """One way drive in minutes on current traffic, None if Waze fails.
@@ -151,14 +149,15 @@ class Router:
         ):
             return Route(km=entry["km"], out_min=entry["out_min"])
 
-        if departure:
-            leave = start
-        else:
-            guess = estimate_route(home, dest, True).out_min
-            leave = start - dt.timedelta(minutes=guess)
-        # The return leg: an hour at the destination is as good a guess as
-        # any; it only shifts which traffic the way back is costed on.
-        back_leave = (leave if departure else start) + dt.timedelta(hours=1)
+        # Drive time is what Waze is asked for, so the straight line
+        # estimate times both legs: leaving home for an arrival, and
+        # arriving for a departure. The return leg leaves an hour after
+        # arriving, as good a guess as any; it only shifts which traffic
+        # the way back is costed on.
+        drive = dt.timedelta(minutes=estimate_route(home, dest, True).out_min)
+        leave = start if departure else start - drive
+        arrive = start + drive if departure else start
+        back_leave = arrive + dt.timedelta(hours=1)
         try:
             (out_km, out_min), back = await self._hass.async_add_executor_job(
                 waze_legs,
@@ -172,5 +171,4 @@ class Router:
             return None
         km = out_km + (back[0] if back else 0)
         self.cache[key] = {"km": km, "out_min": out_min, "ts": ts}
-        self.dirty = True
         return Route(km=km, out_min=out_min)
