@@ -10,10 +10,9 @@
 #   - rain_penalty is a flat bump when precipitation is present.
 #
 # THE NAME SETS THE ENTITY ID, not unique_id. "Tesla Adjusted Efficiency Wh
-# Km" slugs to sensor.tesla_adjusted_efficiency_wh_km, which is what
-# tesla_trip_energy.py reads. Rename it and you must set
-# `efficiency_sensor:` in the app config, or every trip silently falls back
-# to the baseline.
+# Km" slugs to sensor.tesla_adjusted_efficiency_wh_km. Pick that entity as
+# the consumption sensor in EV Trip Planner's setup; while it has no value
+# trips are costed at the fallback Wh/km (logged once as a warning).
 #
 # WIND UNITS. Weather entities report wind_speed in the unit given by their
 # wind_speed_unit attribute (OpenWeatherMap: m/s). The template normalises
