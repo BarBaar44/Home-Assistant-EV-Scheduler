@@ -10,12 +10,14 @@ import re
 from collections.abc import Generator
 from dataclasses import dataclass, field
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
-from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.const import EVENT_HOMEASSISTANT_STARTED
+from homeassistant.core import CoreState, HomeAssistant, ServiceCall
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.util import dt as dt_util
+from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
 from custom_components.ev_trip_planner import charging
 from custom_components.ev_trip_planner.coordinator import Plan
@@ -357,3 +359,31 @@ async def test_not_configured_does_nothing(hass, entry, car, aioclient_mock) -> 
     await charger.async_run("plan")
     assert car.writes == []
     assert not aioclient_mock.mock_calls
+
+
+# ------------------------------------------------------------- triggers
+# Issue #9: a plain lambda as listener runs in an executor thread, where
+# schedule() cannot create its task. These fire the real triggers.
+
+
+async def test_hourly_tick_runs(hass, charger) -> None:
+    with patch.object(charger, "async_run", AsyncMock()) as run:
+        async_fire_time_changed(hass, dt_util.utcnow() + charging.REPUBLISH)
+        await hass.async_block_till_done(wait_background_tasks=True)
+    run.assert_awaited_once_with(charging.FIRED_HOURLY)
+
+
+async def test_startup_run_after_ha_started(
+    hass: HomeAssistant, ic, world, car, aioclient_mock
+) -> None:
+    hass.set_state(CoreState.not_running)
+    e = make_entry(evcc_url=EVCC, evcc_vehicle="tesla", car_limit_entity=LIMIT)
+    e.add_to_hass(hass)
+    with patch.object(charging.ChargeController, "async_run", AsyncMock()) as run:
+        assert await hass.config_entries.async_setup(e.entry_id)
+        await hass.async_block_till_done(wait_background_tasks=True)
+        run.assert_not_awaited()
+        hass.set_state(CoreState.running)
+        hass.bus.async_fire(EVENT_HOMEASSISTANT_STARTED)
+        await hass.async_block_till_done(wait_background_tasks=True)
+    run.assert_awaited_once_with(charging.FIRED_STARTUP)

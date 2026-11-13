@@ -137,9 +137,7 @@ class ChargeController:
         self._last_plan = asdict(data.plan) if data else None
         self._unsubs.append(self.coordinator.async_add_listener(self._plan_updated))
         self._unsubs.append(
-            async_track_time_interval(
-                self.hass, lambda _now: self.schedule(FIRED_HOURLY), REPUBLISH
-            )
+            async_track_time_interval(self.hass, self._hourly, REPUBLISH)
         )
         if self.settings.car_charging_entity:
             self._unsubs.append(
@@ -152,10 +150,19 @@ class ChargeController:
         else:
             self._unsubs.append(
                 self.hass.bus.async_listen_once(
-                    EVENT_HOMEASSISTANT_STARTED,
-                    lambda _event: self.schedule(FIRED_STARTUP),
+                    EVENT_HOMEASSISTANT_STARTED, self._started
                 )
             )
+
+    # Both must be @callback: HA runs a plain function (a lambda included)
+    # in an executor thread, where schedule() cannot create its task.
+    @callback
+    def _hourly(self, _now: dt.datetime) -> None:
+        self.schedule(FIRED_HOURLY)
+
+    @callback
+    def _started(self, _event: Event) -> None:
+        self.schedule(FIRED_STARTUP)
 
     @callback
     def async_stop(self) -> None:
