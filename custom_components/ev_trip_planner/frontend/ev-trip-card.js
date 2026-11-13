@@ -20,7 +20,7 @@
  */
 
 // The integration's version: the card ships with it (test_card checks).
-const VERSION = "0.3.0";
+const VERSION = "0.3.1";
 
 const DEFAULTS = {
   title: "Trips and charging",
